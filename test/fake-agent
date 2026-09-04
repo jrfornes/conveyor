@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Fake cursor-agent (protocol §11). Replays CONVEYOR_FAKE_SCRIPT, a file of lines:
+
+  commit [--empty] [--no-verify] "<message>"   write work.txt (unless --empty), git commit
+  draft <to> <task> <verdict>                  write ./tmp/handoff.txt ($TASK, $ROLE expand)
+  write <file> "<text>"                        write a file in the worktree
+  handoff                                      run handoff.sh ./tmp/handoff.txt
+  sleep <n> | crash | exit <n>
+  once <line>                                  run <line> only the first time (per task)
+A literal \n inside a quoted argument becomes a newline.
+
+If CONVEYOR_FAKE_SCRIPT is a directory, <dir>/<role> is used; <dir>/<role>.resume
+when invoked with --resume and that file exists. `models` lists CONVEYOR_FAKE_MODELS
+(comma separated; default composer-2.5,gpt-5)."""
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import time
+
+
+def emit(**ev):
+    print(json.dumps(ev), flush=True)
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ["models"]:
+        print("\n".join(os.environ.get("CONVEYOR_FAKE_MODELS", "composer-2.5,gpt-5").split(",")))
+        return
+    if args[:1] == ["--version"]:
+        return print("fake-agent 0.0")
+    prompt = args[-1] if args else ""
+    session = args[args.index("--resume") + 1] if "--resume" in args else f"fake-{os.getpid()}"
+    emit(type="system", session_id=session)
+    emit(type="fake", args=args[:-1], prompt=prompt)
+    role = os.environ.get("CONVEYOR_ROLE", "")
+    m = re.search(r"^Task: (\S+)", prompt, re.M)
+    task = m.group(1) if m else ""
+    script = os.environ.get("CONVEYOR_FAKE_SCRIPT", "")
+    if os.path.isdir(script):
+        alt = os.path.join(script, role + ".resume")
+        script = alt if "--resume" in args and os.path.exists(alt) else os.path.join(script, role)
+    if not task or not script or not os.path.isfile(script):  # smoke test: no Task: line
+        return emit(type="result", text="ok")
+    with open(script) as f:
+        lines = f.read().splitlines()
+    for lineno, line in enumerate(lines, 1):
+        parts = shlex.split(line.replace("$TASK", task).replace("$ROLE", role).replace("\\n", "\n"))
+        if not parts or parts[0].startswith("#"):
+            continue
+        if parts[0] == "once":
+            marker = os.path.join("tmp", f".fake-once-{task}-{lineno}")
+            if os.path.exists(marker):
+                continue
+            os.makedirs("tmp", exist_ok=True)
+            open(marker, "w").close()
+            parts = parts[1:]
+        cmd, rest = parts[0], parts[1:]
+        if cmd == "commit":
+            flags = [a for a in rest if a.startswith("--")]
+            msg = [a for a in rest if not a.startswith("--")][0]
+            if "--empty" not in flags:
+                with open("work.txt", "a") as f:
+                    f.write(msg + "\n")
+                subprocess.run(["git", "add", "-A"], check=True)
+            git = ["git", "commit", "-q", "-m", msg]
+            if "--empty" in flags:
+                git.append("--allow-empty")
+            if "--no-verify" in flags:
+                git.append("--no-verify")
+            r = subprocess.run(git, capture_output=True, text=True)
+            emit(type="tool", name="git commit", exit=r.returncode, output=r.stdout + r.stderr)
+        elif cmd == "draft":
+            os.makedirs("tmp", exist_ok=True)
+            with open("tmp/handoff.txt", "w") as f:
+                f.write(f"to: {rest[0]}\ntask: {rest[1]}\nverdict: {rest[2]}\n")
+        elif cmd == "write":
+            with open(rest[0], "w") as f:
+                f.write(rest[1])
+        elif cmd == "handoff":
+            r = subprocess.run(["handoff.sh", "./tmp/handoff.txt"], capture_output=True, text=True)
+            emit(type="tool", name="handoff.sh", exit=r.returncode, output=r.stdout + r.stderr)
+        elif cmd == "sleep":
+            time.sleep(float(rest[0]))
+        elif cmd == "crash":
+            os.kill(os.getpid(), 9)
+        elif cmd == "exit":
+            sys.exit(int(rest[0]))
+        else:
+            emit(type="error", text=f"unknown fake-agent command: {cmd}")
+            sys.exit(1)
+    emit(type="result", text="done")
+
+
+if __name__ == "__main__":
+    main()

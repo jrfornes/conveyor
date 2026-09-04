@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Conveyor byline hook (protocol §7.4). Installed by `conveyor start` into the
+shared .git/hooks/. Appends `By <role>.` when the message does not end with it."""
+import os
+import sys
+
+role = os.environ.get("CONVEYOR_ROLE") or "operator"
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    text = f.read()
+lines = [l for l in text.split("\n") if l.strip() and not l.startswith("#")]
+if not lines or lines[-1] != f"By {role}.":
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(f"\n\nBy {role}.\n")

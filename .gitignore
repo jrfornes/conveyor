@@ -2,3 +2,5 @@
 .conveyor/
 .cursor/rules/conveyor-role.mdc
 tmp/
+__pycache__/
+*.pyc
