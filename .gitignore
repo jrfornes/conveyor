@@ -1,0 +1,4 @@
+.worktrees/
+.conveyor/
+.cursor/rules/conveyor-role.mdc
+tmp/

@@ -1,0 +1,20 @@
+# Conveyor pipeline configuration. One role per line, in pipeline order.
+#
+#   role <name> <model> [max_retries=N] [max_minutes=N] [max_attempts=N] [cli-args...]
+#
+# <model> is passed verbatim to `cursor-agent --model`. Run `cursor-agent models`
+# to see what your subscription exposes; `conveyor start` refuses unknown models.
+# Effort is part of Cursor's model name (e.g. a -high suffix), not a flag.
+#
+# Pick models from different families for coder and reviewer so the second
+# look is not correlated with the first. The names below are placeholders:
+# replace them with two entries from `cursor-agent models`.
+
+role coder    composer-2.5  max_retries=3 max_minutes=120 max_attempts=3
+role reviewer composer-2.5  max_minutes=60 max_attempts=2
+
+# Optional global settings.
+[global]
+agent_bin = cursor-agent
+agent_args = --trust
+poll_seconds = 2
