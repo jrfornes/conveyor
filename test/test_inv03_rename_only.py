@@ -26,7 +26,7 @@ class RenameOnly(ConveyorTest):
                 if re.search(r"open\([^)]*['\"][wa]['\"]", line):
                     opens.append(f"{os.path.basename(src)}:{i}: {line.strip()}")
         allowed = ("atomic_write", 'open(tmp, "w"', "pid", "loop.log", "stop", "log, \"a\"", "open(path, \"a\")",
-                   "lf")
+                   "lf", "open(marker")  # crash_point: test-only marker file, not a queue file
         stray = [o for o in opens if not any(a in o for a in allowed)]
         self.assertEqual(stray, [])
 

@@ -16,8 +16,9 @@ class Bylines(ConveyorTest):
             for sha in shas:
                 msg = fx.git("log", "-1", "--format=%B", sha)
                 author_role = "operator" if fx.git("log", "-1", "--format=%s", sha).startswith("Add task") else role
-                if role == "reviewer" and msg.endswith("By coder."):
-                    continue  # coder commits merged into the reviewer branch keep their byline
+                other = "coder" if role == "reviewer" else "reviewer"
+                if msg.endswith(f"By {other}."):
+                    continue  # a merge.sh from one role's branch keeps the other role's byline
                 self.assertTrue(msg.endswith(f"By {author_role}."), f"{sha}: {msg!r}")
 
 
