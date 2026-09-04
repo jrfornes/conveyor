@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Conveyor operator CLI (protocol §10, runbook §4–7).
 
-conveyor start | stop [--now] | task <name> [--delete] | status | log <role> [<task>] | resume <task> [--to <role>]
+conveyor init [<path>] | start | stop [--now] | task <name> [--delete] | status | log <role> [<task>] | resume <task> [--to <role>]
 """
 import json
 import os
@@ -18,6 +18,10 @@ from conveyor import board, config, handoff, layout, queue, util  # noqa: E402
 RULE_FILES = ["constitution.md", "constitution/engineering.md", "constitution/workflow.md",
               "constitution/handoffs.md", "project.md"]
 GITIGNORE = [".worktrees/", ".conveyor/", ".cursor/rules/conveyor-role.mdc", "tmp/"]
+REPO = os.path.dirname(BIN)
+SHIPPED = ["constitution.md", "constitution/engineering.md", "constitution/workflow.md",
+           "constitution/handoffs.md", "roles/coder.md", "roles/reviewer.md", "conveyor.conf.example"]
+TEMPLATED = ["project.md"]  # copied only if missing; the operator owns it after that
 
 
 def root_dir():
@@ -46,6 +50,34 @@ def loop_pid(paths, role):
         return pid if util._pid_alive(pid) else 0
     except (OSError, ValueError):
         return 0
+
+
+# --- init ---------------------------------------------------------------
+def cmd_init(args):
+    target = os.path.realpath(args[0] if args and not args[0].startswith("--") else ".")
+    if not util.git_ok(["rev-parse", "--is-inside-work-tree"], target):
+        util.die(f"conveyor init: {target} is not a git checkout; run git init there first")
+    os.makedirs(os.path.join(target, "tasks"), exist_ok=True)
+    for rel in SHIPPED:
+        src, dst = os.path.join(REPO, rel), os.path.join(target, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy(src, dst)
+    for rel in TEMPLATED:
+        dst = os.path.join(target, rel)
+        if not os.path.exists(dst):
+            shutil.copy(os.path.join(REPO, rel), dst)
+    conf = os.path.join(target, "conveyor.conf")
+    if not os.path.exists(conf):
+        shutil.copy(os.path.join(target, "conveyor.conf.example"), conf)
+        print("wrote conveyor.conf from the example; edit in the two model names before `conveyor start`")
+    gi = os.path.join(target, ".gitignore")
+    have = util.read_text(gi).splitlines() if os.path.exists(gi) else []
+    missing = [e for e in GITIGNORE if e not in have]
+    if missing:
+        with open(gi, "a") as f:
+            f.write(("" if not have or have[-1] == "" else "\n") + "\n".join(missing) + "\n")
+    print(f"Conveyor bundle installed in {target}")
+    print("Next: edit project.md and conveyor.conf, review `git status`, commit, then `conveyor start`.")
 
 
 # --- start / stop -----------------------------------------------------------
@@ -247,8 +279,8 @@ def cmd_resume(args):
     print(f"{task} resumed to {to}" + (" (delivered by the next sweep)" if to == "done" else ""))
 
 
-COMMANDS = {"start": cmd_start, "stop": cmd_stop, "task": cmd_task, "status": cmd_status,
-            "log": cmd_log, "resume": cmd_resume}
+COMMANDS = {"init": cmd_init, "start": cmd_start, "stop": cmd_stop, "task": cmd_task,
+            "status": cmd_status, "log": cmd_log, "resume": cmd_resume}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:

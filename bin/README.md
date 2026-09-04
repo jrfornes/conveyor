@@ -21,15 +21,27 @@ git clone <this repo> ~/conveyor
 export PATH="$HOME/conveyor/bin:$PATH"     # conveyor, handoff.sh, role-loop.sh, merge.sh
 ```
 
-Then follow `docs/runbook.md` §3 in the target repo. `conveyor start` does
-**not** copy scripts into worktrees: each role loop prepends this `bin/`
-directory to `PATH` for the agent process, so an agent can run
-`handoff.sh ./tmp/handoff.txt` from its worktree root.
+`conveyor start` does **not** copy scripts into worktrees: each role loop
+prepends this `bin/` directory to `PATH` for the agent process, so an agent
+can run `handoff.sh ./tmp/handoff.txt` from its worktree root. That means the
+conveyor checkout above only needs to exist once per machine, on `PATH`; you
+never copy `bin/` or `lib/` into a target project.
+
+To point Conveyor at a project, run `conveyor init [<path>]` (default: cwd)
+from inside a git checkout. It automates `docs/runbook.md` §3 step 1:
+copies `constitution.md`, `constitution/`, `roles/`, `conveyor.conf.example`,
+and (only if missing) `project.md`, creates `conveyor.conf` from the example
+if missing, creates `tasks/`, and appends the required `.gitignore` entries.
+It is safe to re-run: files the operator owns once they exist (`project.md`,
+`conveyor.conf`, anything under `tasks/`) are never overwritten; the
+shipped-as-is files are refreshed every time so they always match this
+conveyor checkout. It never commits — review and commit yourself. Then edit
+`project.md` and the two model names in `conveyor.conf`, and `conveyor start`.
 
 ## Layout
 
 ```
-bin/conveyor          operator CLI: start | stop [--now] | task <name> [--delete] | status | log | resume
+bin/conveyor          operator CLI: init [<path>] | start | stop [--now] | task <name> [--delete] | status | log | resume
 bin/handoff.sh        validator + audit gate (protocol §4–5)
 bin/role-loop.sh      per-role loop (protocol §6); --once for tests
 bin/merge.sh          protocol §7
