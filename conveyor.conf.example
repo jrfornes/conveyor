@@ -2,19 +2,31 @@
 #
 #   role <name> <model> [max_retries=N] [max_minutes=N] [max_attempts=N] [cli-args...]
 #
-# <model> is passed verbatim to `cursor-agent --model`. Run `cursor-agent models`
-# to see what your subscription exposes; `conveyor start` refuses unknown models.
+# <model> is passed verbatim to `cursor-agent --model`. Run `cursor-agent --list-models`
+# (or `cursor-agent models`) to see what your subscription exposes; `conveyor start`
+# refuses unknown models.
 # Effort is part of Cursor's model name (e.g. a -high suffix), not a flag.
 #
 # Pick models from different families for coder and reviewer so the second
 # look is not correlated with the first. The names below are placeholders:
-# replace them with two entries from `cursor-agent models`.
+# replace them with two entries from `cursor-agent --list-models`.
 
 role coder    composer-2.5  max_retries=3 max_minutes=120 max_attempts=3
 role reviewer composer-2.5  max_minutes=60 max_attempts=2
 
-# Optional global settings.
-[global]
-agent_bin = cursor-agent
-agent_args = --trust
-poll_seconds = 2
+# Optional human gate. `gate <role>` holds that role's outbound `ready` in
+# .conveyor/approvals/pending/ until you run `conveyor approve <id>` (or
+# `conveyor reject <id>`). The gated role must not be the last one.
+# `gate none` says "no gate" outright — needed on a three-role belt, where an
+# absent line still means "gate the first role" for backward compatibility.
+#
+#   gate specifier
+#   gate none
+
+# Optional inbox adapter. Manual import always works without this.
+# [inbox]
+# jira_base = https://example.atlassian.net
+# jira_token_env = JIRA_API_TOKEN
+# ticket_reviewer_model = composer-2.5
+# ticket_reviewer_max_minutes = 30
+# ticket_reviewer_max_attempts = 2

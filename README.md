@@ -1,27 +1,67 @@
 # Conveyor
 
-A local-first orchestrator for a two-role pipeline of Cursor CLI coding agents (coder → reviewer), coordinated entirely through git worktrees and a file-based handoff queue. No UI, no daemon beyond one loop per role, no database.
+A local-first orchestrator for a configurable pipeline of Cursor CLI coding agents (default: Review belt, `coder → reviewer`), coordinated entirely through git worktrees and a file-based handoff queue. An optional `gate <role>` line can hold a role's first `ready` for operator approval. No daemon beyond one loop per role, no database.
 
-This bundle is the specification and the shipped agent-facing files. There is no code yet.
+## Install
+
+```bash
+git clone <this repo> ~/conveyor
+export PATH="$HOME/conveyor/bin:$PATH"
+```
+
+See [`bin/README.md`](bin/README.md) for language choice, PATH details, and `conveyor init`.
+
+## Use
+
+In a git checkout:
+
+```bash
+conveyor init              # copy bundle files; safe to re-run
+# edit project.md and conveyor.conf (models)
+conveyor start
+conveyor task <name>       # create work; pipe or type the spec
+conveyor status
+conveyor log coder
+conveyor resume <task>     # after a needs-human park
+conveyor import --source manual --title "..."
+conveyor intake <id>
+conveyor inbox approve <id>   # or inbox skip
+conveyor approve <id>      # gated ready; or reject
+conveyor workflow list
+conveyor workflow activate <slug>
+conveyor-ui                # optional localhost cockpit
+conveyor stop              # or stop --now
+```
+
+Operator docs: [`docs/runbook.md`](docs/runbook.md).
+
+## Test
+
+```bash
+cd test && python3 -m unittest discover -p 'test_*.py'
+```
+
+Runs the fake-agent suite (no Cursor required).
+
+## Release
+
+See [`docs/release-review.md`](docs/release-review.md) for the RC / official-usable checklist.
+
+## Layout
 
 ```
-README.md                          this file
-IMPLEMENT.md                       brief for the agent or person building it
-docs/
-  conveyor-prd.md                  scope (v0.3); Appendix B = deferred features
-  conveyor-handoff-protocol.md     normative: formats, directories, state machine, errors
-  runbook.md                       install, configure, operate, recover
-  agent-orchestration-north-star.md  the principles behind every choice
-  later/orchestration-dashboard-spec.md  deferred (PRD Appendix B.6)
-constitution.md                    shipped into target repos: precedence
-constitution/{engineering,workflow,handoffs}.md
-roles/{coder,reviewer}.md
-project.md                         per-project template
+bin/                   conveyor, handoff.sh, role-loop.sh, merge.sh
+lib/conveyor/          Python stdlib implementation
+docs/                  PRD, protocol, runbook
+constitution.md        shipped into target repos
+constitution/
+roles/
+project.md             per-project template
 conveyor.conf.example
-tasks/                             operator task files live here
-.gitignore
+tasks/
+test/                  protocol invariant + milestone tests
 ```
 
-To build it: hand `IMPLEMENT.md` to an agent (or read it yourself). To use it once built: `docs/runbook.md`.
+[`bin/conveyor-ui`](bin/conveyor-ui) launches an optional localhost cockpit ([`ui/`](ui/), Angular + Material). `conveyor-ui --demo` uses a throwaway fixture. The CLI is enough to operate the pipeline.
 
 The reference behavior comes from SwarmForge (`github.com/unclebob/swarm-forge`, read September 2026). No code from it is used or should be; it had no licence file at that time.

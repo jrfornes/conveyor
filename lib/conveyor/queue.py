@@ -4,7 +4,7 @@ import glob
 import os
 import subprocess
 
-from . import board, handoff, layout, util
+from . import board, config, handoff, inbox, layout, util
 
 REQUIRED = handoff.AGENT + handoff.VALIDATOR
 
@@ -57,7 +57,10 @@ def park(paths, src, task, reason, detail):
     os.makedirs(d, exist_ok=True)
     util.atomic_write(os.path.join(d, "reason"), f"{reason}\n{detail}\n{util.now()}\n")
     os.rename(src, os.path.join(d, "item.handoff"))
-    board.update(paths, task, lane="needs-human")
+    try:
+        board.update(paths, task, lane="needs-human")
+    except KeyError:
+        pass
     print(f"parked {task}: {reason} ({detail})", flush=True)
 
 
@@ -84,7 +87,7 @@ def sweep(paths, cfg, role):
         if os.path.exists(os.path.join(rp.sent, f)):
             os.remove(src)
             continue
-        if board.get(paths, h["task"]) is None:
+        if h["from"] != config.INTAKE_ROLE and board.get(paths, h["task"]) is None:
             fail(rp, src, "no-board-row")
             continue
         if h["to"] == "done":
@@ -96,8 +99,20 @@ def sweep(paths, cfg, role):
             board.update(paths, h["task"], lane="done")
             os.rename(src, os.path.join(rp.sent, f))
             continue
+        if h["to"] == "operator":
+            if h["from"] != config.INTAKE_ROLE:
+                fail(rp, src, f"unknown recipient {h['to']}")
+                continue
+            _apply_intake(paths, h)
+            os.rename(src, os.path.join(rp.sent, f))
+            continue
         if h["to"] not in cfg.names():
             fail(rp, src, f"unknown recipient {h['to']}")
+            continue
+        if role == cfg.gate_role() and h["verdict"] == "ready":
+            os.makedirs(paths.approvals_pending, exist_ok=True)
+            os.rename(src, os.path.join(paths.approvals_pending, f))
+            board.update(paths, h["task"], lane=role)
             continue
         to = paths.role(h["to"])
         if handoff.find_id(h["id"], to.new, to.in_process, to.completed) or any(
@@ -122,7 +137,8 @@ def dequeue(paths, role, f):
     rp = paths.role(role)
     dst = handoff.move(os.path.join(rp.new, f), rp.in_process)
     h = handoff.stamp(dst, dequeued_at=util.now(), attempt=1)
-    board.update(paths, h["task"], lane=role)
+    if role != config.INTAKE_ROLE:
+        board.update(paths, h["task"], lane=role)
     return dst
 
 
@@ -143,3 +159,81 @@ def started_at(paths, row, h):
     if earliest:
         board.update(paths, row["name"], started_at=earliest)
     return earliest
+
+
+def _git_show(root, commit, rel):
+    r = subprocess.run(["git", "show", f"{commit}:{rel}"], cwd=root,
+                       capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else ""
+
+
+def _apply_intake(paths, h):
+    """Copy grade.md / proposed-task.md from the intake commit into the inbox item."""
+    iid = h["task"]
+    grade = _git_show(paths.root, h["commit"], "grade.md")
+    proposed = _git_show(paths.root, h["commit"], "proposed-task.md")
+    if grade:
+        inbox.write_file(paths, iid, "grade.md", grade)
+    if proposed:
+        inbox.write_file(paths, iid, "proposed-task.md", proposed)
+    status = "awaiting-approval" if proposed.strip() else "graded"
+    inbox.update_meta(paths, iid, status=status, grade=inbox.parse_grade(grade))
+
+
+def pending_approvals(paths):
+    """Handoffs held in .conveyor/approvals/pending/."""
+    out = []
+    for f in layout.handoffs(paths.approvals_pending):
+        p = os.path.join(paths.approvals_pending, f)
+        try:
+            h, body = handoff.read(p)
+        except (handoff.ParseError, OSError):
+            continue
+        out.append({"file": f, "path": p, "headers": h, "body": body})
+    return out
+
+
+def find_pending(paths, hid):
+    for item in pending_approvals(paths):
+        if item["headers"].get("id") == hid or item["headers"].get("task") == hid:
+            return item
+    return None
+
+
+def approve_pending(paths, cfg, hid):
+    """Move a held specifier ready into the next role's inbox/new."""
+    item = find_pending(paths, hid)
+    if item is None:
+        raise KeyError(hid)
+    h, body, src = item["headers"], item["body"], item["path"]
+    to = paths.role(h["to"])
+    name = item["file"]
+    tmp = os.path.join(to.inbox_tmp, name)
+    handoff.write(tmp, {**h, "enqueued_at": util.now()}, body)
+    os.rename(tmp, os.path.join(to.new, name))
+    os.remove(src)
+    board.update(paths, h["task"], lane=h["to"])
+    return h
+
+
+def reject_pending(paths, cfg, hid, comments):
+    """Return a held ready to the gated role as findings-style notify. Preserves task_id."""
+    item = find_pending(paths, hid)
+    if item is None:
+        raise KeyError(hid)
+    h, src = item["headers"], item["path"]
+    # Back to the role that produced the held handoff — the gated role. For a
+    # three-pack that is names()[0], so this is a no-op there.
+    target = cfg.gate_role() or h.get("from") or cfg.names()[0]
+    if target not in cfg.names():
+        target = cfg.names()[0]
+    body = "Rejected by operator:\n\n" + (comments or "").rstrip() + "\n"
+    stamped = {**h, "to": target, "verdict": "findings", "enqueued_at": util.now()}
+    to = paths.role(target)
+    name = handoff.filename(stamped)
+    tmp = os.path.join(to.inbox_tmp, name)
+    handoff.write(tmp, stamped, body)
+    os.rename(tmp, os.path.join(to.new, name))
+    os.remove(src)
+    board.update(paths, h["task"], lane=target)
+    return stamped   # stamped, not h: callers need the real recipient

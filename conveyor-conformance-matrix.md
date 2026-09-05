@@ -18,7 +18,7 @@ to a PRD Appendix B deferral entry; `inv n` refers to a protocol §9 invariant.
 | Mark | Meaning |
 |---|---|
 | `[x] full` | Present and specified to the manual's intent. |
-| `[~] simplified` | Present, but narrowed for the two-role MVP; grows later without redesign. |
+| `[~] simplified` | Present, but narrowed vs the north star; grows later without redesign. |
 | `[ ] deferred` | Not in the MVP; has a written re-add path in Appendix B. |
 | `[!] diverges` | A deliberate design decision that departs from the manual — decide, don't just tick. |
 
@@ -29,12 +29,12 @@ to a PRD Appendix B deferral entry; `inv n` refers to a protocol §9 invariant.
 | Manual area | full | simplified | deferred | diverges |
 |---|---|---|---|---|
 | Isolation & setup | 6 | 1 | 0 | 1 |
-| Pipeline config | 3 | 1 | 1 | 0 |
+| Pipeline config | 2 | 2 | 1 | 0 |
 | Tasks | 3 | 1 | 0 | 0 |
 | Handoffs & queues | 6 | 2 | 1 | 0 |
 | Pipeline flow | 1 | 2 | 1 | 0 |
 | Verification | 3 | 0 | 1 | 0 |
-| Human gates | 2 | 0 | 1 | 1 |
+| Human gates | 3 | 0 | 1 | 0 |
 | Observability | 2 | 2 | 1 | 1 |
 | Durability & cost | 4 | 1 | 1 | 0 |
 
@@ -55,7 +55,7 @@ the "Decisions" section at the end.
 
 ## 2. Pipeline configuration (manual Part 2)
 
-- [x] **full** — Pipeline order/size in config → `CFG-1` (exactly two roles for MVP; derivation is config-driven per §3.2).
+- [~] **simplified** — Pipeline order/size in config → `CFG-1` (config-driven per §3.2; default Review belt is two roles; n-role and explicit `gate` supported).
 - [ ] **deferred** — Receive mode per role (task vs batch) → task-only now; batch review roles are **B.3**.
 - [~] **simplified** — Different backend per role → model-per-role + different families by default (`CFG-1`, `VER-4`); backend fixed to Cursor, second backend is **B.1**.
 - [x] **full** — Layered constitution with precedence → `CON-1` (engineering/workflow/handoffs + `project.md` + roles; `constitution.md` declares precedence).
@@ -66,7 +66,7 @@ the "Decisions" section at the end.
 - [x] **full** — Create task = validate + write `tasks/<name>.md` + card + notify → `conveyor task` (§10): validate name, commit task file on main, board row, operator handoff to coder, immediate sweep.
 - [x] **full** — Task intent is a versioned file agents re-read → `CON-4`; body is byte-identical to the commit message (`inv 6`).
 - [x] **full** — Stable task ID survives every move and retry → `task_id` stable for the row's life (§8.1); `conveyor resume` never resets id/audit/retry (§6.10); counters monotonic (`inv 9`).
-- [~] **simplified** — Tasks deleted cleanly → `conveyor task --delete` with new id + zeroed counters (§8.1); `audit_pending/<task>.fp` cleanup on delete is not spelled out — confirm during build.
+- [x] **full** — Tasks deleted cleanly → `conveyor task --delete` with new id + zeroed counters (§8.1); `audit_pending/<task>.fp` removed on delete so a recreated name is challenged again.
 
 ## 4. Handoffs & queues (manual Part 5)
 
@@ -96,7 +96,7 @@ the "Decisions" section at the end.
 
 ## 7. Human checkpoints (manual Part 6)
 
-- [!] **diverges** — One early human gate at the spec/plan → **no in-loop gate**; task authoring is the decision point; approval + specifier role are **B.5**. PRD Appendix A openly answers "no" to review-item 6. Compounded by auto-merge to `main` on pass (§7.3). See Decision D2.
+- [x] **full** — Early human gate at spec/plan → configurable `gate <role>` hold in `.conveyor/approvals/pending/`; `conveyor approve` / `reject`; intake approve for inbox items (`cfg.gate_role()`, `test/test_pipeline.py`).
 - [ ] **deferred** — Structured clarifications with IDs → headless agents can't ask mid-task; ambiguity parks instead (`inv 12`); clarification channel is **B.5**.
 - [x] **full** — Rejections carry actionable findings; id/audit survive retry → reviewer `findings` in the commit message, coder reads them on retry (§6.8 step 3); `task_id`/`audit_count`/`retry_count` preserved (§6.10).
 - [x] **full** — Human's task statement is a versioned file agents re-read → `CON-4`, §6.8 step 2.
@@ -116,7 +116,7 @@ the "Decisions" section at the end.
 - [x] **full** — Max-retry parks stuck tasks in a needs-human lane → `max_retries` → `.conveyor/needs-human/` + `reason` (`BUD-2`, M4); `conveyor resume` re-injects (§6.10).
 - [x] **full** — Restart state is the filesystem; every helper idempotent → §6.1 resume-before-new, atomic renames throughout, `inv 3/11`.
 - [ ] **deferred** — Per-task token/cost ceiling; loop detection → blocked on Cursor stream-json usage reporting (**B.7**); loop detection = park on repeated `(role, task, commit)` (**B.7**).
-- [~] **simplified** — Cost levers (pack size, worker cap, backend per role) → model-per-role present; pack size fixed at 2 and no worker cap until more roles land (**B.3**).
+- [~] **simplified** — Cost levers (pack size, worker cap, backend per role) → model-per-role present; pipeline size configurable via `conveyor.conf`; no worker cap until batch mode (**B.3**).
 
 ---
 
@@ -141,14 +141,16 @@ with SwarmForge.
 (`.worktrees/`, `.conveyor/`) from committed **contract** (config, constitution, roles, tasks), and
 mark this row `[x] full` once the manual is fixed.
 
-**D2 — No human checkpoint inside the run, plus auto-merge to `main`.**
-Spec approval (B.5) and clarification (B.5) are deferred and the reviewer auto-merges to `main` on
-pass (§7.3), so the run is autonomous from `conveyor task` to merged code; the human reviews `main`
-after the fact and is pulled in only when a task parks. The manual wanted the *early* gate as the
-point of maximum leverage.
-*Options:* (a) accept full autonomy for trusted, well-scoped tasks; (b) cheapest partial gate — flip
-PRD open-question 3 to "leave the branch, don't auto-merge", making the human's branch-read a de
-facto exit gate; (c) pull B.5 approval forward and add a `master` role. Record the choice here.
+**D2 — Auto-merge to `main` on `pass`.**
+The configurable `gate <role>` hold and intake approve are in (`gate <role>`,
+`.conveyor/approvals/pending/`, `conveyor approve` / `reject`; three-role default gates the
+first role). Structured clarification channel remains **B.5**. On `pass`, the last role still
+auto-merges to `main` (§7.3), so the human reviews merged code after the fact unless the task
+parks. The manual wanted the *early* gate as the point of maximum leverage — the gate hold
+addresses that for gated pipelines; auto-merge is the remaining choice.
+*Options:* (a) accept full autonomy for trusted, well-scoped tasks; (b) cheapest partial gate —
+flip PRD open-question 3 to "leave the branch, don't auto-merge", making the human's
+branch-read a de facto exit gate; (c) add a post-pass hold before merge. Record the choice here.
 
 ---
 

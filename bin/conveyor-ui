@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Convenience launcher for the Conveyor UI server."""
+import os
+import sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+env = os.environ.copy()
+prior = env.get("PYTHONPATH", "")
+env["PYTHONPATH"] = REPO + ((os.pathsep + prior) if prior else "")
+os.execvpe(sys.executable, [sys.executable, "-m", "ui.server", *sys.argv[1:]], env)

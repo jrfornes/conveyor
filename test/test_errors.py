@@ -27,6 +27,7 @@ REPAIR = {
     "E_NO_CHANGE": "You have not committed anything. Commit your work (or, as reviewer, an empty commit carrying findings) and retry.",
     "E_AMBIGUOUS_SHA": "Report this to the operator; it requires a longer abbreviation.",
     "E_LOCK": "Retry once. If it fails again, report it.",
+    "E_GATE_FAILED": "Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}.txt",
 }
 PROBLEM = {
     "E_ENV": "CONVEYOR_ROLE or CONVEYOR_WORKTREE not set",
@@ -49,6 +50,7 @@ PROBLEM = {
     "E_NO_CHANGE": "HEAD equals the inbound commit",
     "E_AMBIGUOUS_SHA": "10-char abbreviation is ambiguous",
     "E_LOCK": "could not acquire a lock within 30 s",
+    "E_GATE_FAILED": "project test command failed (exit {n})",
 }
 GOOD = "to: reviewer\ntask: demo\nverdict: ready\n"
 
@@ -75,7 +77,7 @@ class Errors(ConveyorTest):
 
     def expect(self, code, r, **fmt):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertEqual(r.stdout, f"{code}: {PROBLEM[code]}\n  {REPAIR[code]}\n")
+        self.assertEqual(r.stdout, f"{code}: {PROBLEM[code].format(**fmt)}\n  {REPAIR[code].format(**fmt)}\n")
 
     def test_E_ENV(self):
         self.draft()
@@ -198,6 +200,17 @@ class Errors(ConveyorTest):
         r = self.fx.handoff("coder", extra={"CONVEYOR_LOCK_TIMEOUT": "0.3"})
         shutil.rmtree(self.fx.paths.board_lock)
         self.expect("E_LOCK", r)
+
+    def test_E_GATE_FAILED(self):
+        with open(os.path.join(self.wt, "project.md"), "w") as f:
+            f.write("# Project\n\n## Test command\n\n```\nexit 1\n```\n")
+        self.fx.git("add", "project.md", cwd=self.wt)
+        self.fx.git("commit", "-q", "--no-verify", "-m", "Failing test command\n\nBy coder.",
+                    cwd=self.wt)
+        commit = self.fx.git("rev-parse", "--short=10", "HEAD", cwd=self.wt)
+        self.draft()
+        self.expect("E_GATE_FAILED", self.fx.handoff("coder"),
+                    n=1, role="coder", task="demo", commit=commit)
 
     def test_success_then_ok_exit_codes(self):
         self.draft()

@@ -14,12 +14,14 @@ Conventions: MUST / MUST NOT / SHOULD as in RFC 2119. "Rename" always means an a
 
 | Actor | Identity source | May run |
 |---|---|---|
-| `operator` | The human, via the `conveyor` CLI. A pseudo-role with its own outbox. | `conveyor task/status/log/resume/start/stop` |
-| `coder` | `CONVEYOR_ROLE=coder` exported by its loop | `handoff.sh` |
-| `reviewer` | `CONVEYOR_ROLE=reviewer` exported by its loop | `handoff.sh` |
-| `loop` (one process per role) | Started by `conveyor start` | `role-loop.sh`, `merge.sh` |
+| `operator` | The human, via the `conveyor` CLI. A pseudo-role with its own outbox. | `conveyor task/status/log/resume/start/stop/import/intake/inbox/approve/reject/workflow/start-task` |
+| coding roles | `CONVEYOR_ROLE` exported by that role's loop; names from the configured `conveyor.conf` order | `handoff.sh` |
+| `ticket-reviewer` | `CONVEYOR_ROLE=ticket-reviewer` exported by `conveyor intake` | `handoff.sh` (one-shot; not a coding role) |
+| `loop` (one process per coding role) | Started by `conveyor start` | `role-loop.sh`, `merge.sh` |
 
-Role names MUST match `^[a-z][a-z0-9-]*$` (no underscores; underscores are separators in filenames). `operator` and `done` are reserved and MUST NOT appear as role names in `conveyor.conf`.
+Typical coding workflows: Review belt (`coder`, `reviewer`); Spec then build (`specifier`, `coder`, `reviewer`). `ticket-reviewer` is an intake one-shot and MUST NOT appear in `conveyor.conf`.
+
+Role names MUST match `^[a-z][a-z0-9-]*$` (no underscores; underscores are separators in filenames). `operator`, `done`, and `ticket-reviewer` are reserved and MUST NOT appear as role names in `conveyor.conf`.
 
 Every script reads identity from `CONVEYOR_ROLE` and `CONVEYOR_WORKTREE`. No script accepts identity as an argument.
 
@@ -36,18 +38,23 @@ Every script reads identity from `CONVEYOR_ROLE` and `CONVEYOR_WORKTREE`. No scr
   constitution/
     engineering.md  workflow.md  handoffs.md
   roles/
-    coder.md  reviewer.md
+    coder.md  reviewer.md  specifier.md
+  intake/
+    ticket-reviewer.md  rubric.md
   project.md
   tasks/
     <task-name>.md            committed; operator intent
   .worktrees/                 gitignored
-    coder/
-    reviewer/
+    <role>/                   one per coding role, plus ticket-reviewer on demand
   .conveyor/                  gitignored
     board.tsv
     board.lock/               mkdir-style lock (§8.2)
     roles/
-      operator/ coder/ reviewer/      each per §2.3
+      operator/ <coding-roles>/ ticket-reviewer/   each per §2.3
+    inbox/
+      <id>/                   vendor-agnostic intake item (§2.4)
+    approvals/
+      pending/                the gated role's `ready`, held for human approve
     needs-human/
       <task-name>/
         item.handoff
@@ -55,6 +62,8 @@ Every script reads identity from `CONVEYOR_ROLE` and `CONVEYOR_WORKTREE`. No scr
     logs/
       <role>/
         <task-name>_<id>_a<attempt>.jsonl
+      gates/
+        <role>-<task>-<commit>.txt
 ```
 
 ### 2.2 Worktree (`.worktrees/<role>/`)
@@ -101,8 +110,26 @@ loop.lock/        mkdir-style lock; contains pid file
 | `<role>/inbox/in_process` | `<role>`'s loop | `<role>`'s loop |
 | `<role>/inbox/completed` | `<role>`'s loop | nobody |
 | `<role>/audit_pending` | `handoff.sh` | `handoff.sh` |
+| `logs/gates/` | `handoff.sh` | nobody |
 | `needs-human/` | any loop | `conveyor resume` |
 | `board.tsv` | `handoff.sh`, loops, `conveyor task/resume` — under `board.lock` | — |
+| `.conveyor/inbox/<id>/` | `conveyor import` / `conveyor intake` | `conveyor inbox approve/skip` |
+| `.conveyor/approvals/pending/` | the gated role's loop (sweep hold) | `conveyor approve` / `conveyor reject` |
+
+### 2.4 Inbox item (`.conveyor/inbox/<id>/`)
+
+Vendor-agnostic intake. Adapters fill `source.md` and metadata; they MUST NOT write `tasks/`. Status lives in `meta.txt` (lock, rewrite, rename — same pattern as `board.tsv`). The item directory name is a stable id.
+
+```
+.conveyor/inbox/<id>/
+  meta.txt              source, title, url, external_id, status, grade, created_at, task_name
+  source.md             original ticket text
+  grade.md              written from the ticket-reviewer commit
+  proposed-task.md      written from the ticket-reviewer commit on Improve
+  comments.txt          human reject notes for an Improve retry
+```
+
+`status`: `imported` | `grading` | `graded` | `improving` | `awaiting-approval` | `ready` | `started` | `skipped`.
 
 ---
 
@@ -127,8 +154,8 @@ body      = zero or more lines (free text)
 
 | Key | Written by | Value | Required |
 |---|---|---|---|
-| `to` | agent / operator | role name, or `done` | yes |
-| `task` | agent / operator | task name matching `^[a-z0-9][a-z0-9.-]*$`, must exist as `tasks/<task>.md` at `commit` | yes |
+| `to` | agent / operator | role name, `done`, or `operator` (intake only) | yes |
+| `task` | agent / operator | task name matching `^[a-z0-9][a-z0-9.-]*$`; for coding roles MUST exist as `tasks/<task>.md` at `commit`; for `ticket-reviewer` this is the inbox id | yes |
 | `verdict` | agent / operator | `ready` \| `pass` \| `findings` | yes |
 | `type` | validator | always `git_handoff` | yes |
 | `id` | validator | `<from>-<seq>` where `<seq>` is 6-digit zero-padded (§3.4) | yes |
@@ -145,7 +172,15 @@ body      = zero or more lines (free text)
 
 Any header not in this table is an error (`E_UNKNOWN_HEADER`). Agent drafts containing any header not in the "agent / operator" rows are rejected (`E_RESERVED_HEADER`); this is the rule that stops an agent from typing its own SHA.
 
-**Permitted `(from, to, verdict)` triples.** The validator rejects anything else (`E_BAD_ROUTE`):
+**Permitted `(from, to, verdict)` triples.** The validator rejects anything else (`E_BAD_ROUTE`). Implementations MUST compute coding-pack routes from `conveyor.conf` order, not hardcode role names:
+
+- `operator` → first coding role, `ready`
+- adjacent `ready` along the list (intermediate roles MUST forward `ready`; they have no `pass`)
+- last → `done`, `pass`
+- last → **penultimate**, `findings` (two-pack: reviewer → coder; three-pack: reviewer → coder, never specifier)
+- `ticket-reviewer` → `operator`, `ready` (intake only; not derived from coding order)
+
+Two-pack example (`coder`, `reviewer`):
 
 | from | to | verdict | Meaning |
 |---|---|---|---|
@@ -153,8 +188,15 @@ Any header not in this table is an error (`E_UNKNOWN_HEADER`). Agent drafts cont
 | `coder` | `reviewer` | `ready` | Work claimed complete |
 | `reviewer` | `coder` | `findings` | Not accepted; findings in the commit message |
 | `reviewer` | `done` | `pass` | Accepted |
+| `ticket-reviewer` | `operator` | `ready` | Intake grade/improve finished |
 
-Pipeline order is derived from `conveyor.conf`; the table above is what it derives to for the MVP two-pack. Implementations MUST compute it from the config, not hardcode it.
+The table above is the two-role case. In general a pipeline is any ordered list of one or more roles: `operator` → first role `ready`, one `ready` hop between each adjacent pair, last role → `done` `pass`, and last role → penultimate role `findings`. A **one-role** pipeline has no penultimate role and therefore **no `findings` route at all**.
+
+**The human gate.** At most one role may be *gated*, declared by a `gate <role>` line in `conveyor.conf`; `gate none` states explicitly that there is no gate. The gated role must not be the last one. Its outbound `ready` is **not** delivered to the next role: the sending loop's sweep MUST rename it into `.conveyor/approvals/pending/` instead. `conveyor approve <id>` delivers it to the next role's `inbox/new/`. `conveyor reject <id>` returns it to **the gated role** as a findings-style notify and MUST preserve `task_id` / `audit_count`.
+
+For backward compatibility, a three-role pipeline with no `gate` line gates its first role — this reproduces the original three-pack hold, so configs written before `gate` existed keep their behaviour. Every other role count defaults to no gate. To declare a three-role pipeline *ungated*, write `gate none`; `none` is a reserved name, so it can never collide with a role. `config.save()` always writes one form or the other, so a saved file never depends on that inference.
+
+> Changed in Stage 2 (2026-09-04). This section previously said "three-pack adds…" and fixed the hold to the specifier of a three-role pack. Generalizing to N roles with a declared gate is a deliberate scope extension from `design_handoff_conveyor/`; the protocol doc is updated here rather than worked around in the implementation, per `CLAUDE.md`. Two-role belts still have no hold by default (the operator already approved the task file).
 
 ### 3.3 Body
 
@@ -259,6 +301,10 @@ In this order, stopping at the first failure:
 
 `commit` = `git rev-parse --short=10 HEAD`. The validator then checks `git rev-parse --verify --quiet <commit>^{commit}` resolves to exactly HEAD (`E_AMBIGUOUS_SHA`; practically impossible at 10 chars, but the check is cheap and the property matters for `merge.sh`).
 
+### Project test command
+
+After §4.4 and before the audit gate (§5), `handoff.sh` reads `project.md` from `CONVEYOR_WORKTREE` (missing file = empty). Under `## Test command` (until the next `## ` heading), it takes the first fenced block, strips HTML comments, and uses the first remaining non-empty line as the command (extra lines ignored). An empty command is skipped. `findings` and `ticket-reviewer` skip. `ready` and `pass` run the command in the worktree (`shell=True`, no timeout). Exit 0 continues to the audit gate. Nonzero is `E_GATE_FAILED`: stdout, stderr, exit status, and argv are written to `.conveyor/logs/gates/<role>-<task>-<commit>.txt`. The script MUST NOT write `audit_pending`, increment `audit_count`, or queue.
+
 ### 4.5 Error output format
 
 ```
@@ -291,6 +337,7 @@ Codes and messages are part of the interface; `constitution/handoffs.md` quotes 
 | `E_NO_CHANGE` | HEAD equals the inbound commit | You have not committed anything. Commit your work (or, as reviewer, an empty commit carrying findings) and retry. |
 | `E_AMBIGUOUS_SHA` | 10-char abbreviation is ambiguous | Report this to the operator; it requires a longer abbreviation. |
 | `E_LOCK` | could not acquire a lock within 30 s | Retry once. If it fails again, report it. |
+| `E_GATE_FAILED` | project test command failed (exit {n}) | Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}.txt |
 | `AUDIT_REQUIRED` | see §5 | see §5 |
 
 ### 4.6 Installation (success path)
@@ -556,6 +603,8 @@ name  lane  created_at  updated_at  task_id  audit_count  retry_count  started_a
 
 `conveyor task <name>` refuses a name already present (any lane). Deleting a row (`conveyor task --delete <name>`) and recreating it yields a new `task_id` with counters at 0.
 
+`--delete` is refused while the lane is a role, so it only ever applies to `done` or `needs-human` tasks. It removes the board row, every `audit_pending/<task>.fp`, and — when the task is parked — `needs-human/<task>/` in full. The row and the park entry MUST die together: `needs-human/` is enumerated from the filesystem, not the board, so a park directory outliving its row is a task the operator can still act on with no row to update. `tasks/<name>.md` and any handoffs already in `sent/` are kept; the task file is history, and recreating the name commits over it.
+
 ### 8.2 Locks
 
 All locks are directories, created with `mkdir` (atomic on POSIX, portable to macOS without `flock`):
@@ -602,7 +651,8 @@ These are the properties tests assert. Each is stated so that violating it is de
 | `conveyor task <name> [< text]` | Validate name; write and commit `tasks/<name>.md` on main (`By operator.`); append board row (lane `coder`, counters 0); write an operator handoff `to: coder`, `verdict: ready`, `commit` = main HEAD, into `roles/operator/outbox/`; run the operator delivery sweep (§6.5) immediately. |
 | `conveyor status` | Print §2.3 state for each role, `needs-human/` with reasons, and `board.tsv`. Pure read. |
 | `conveyor log <role> [<task>]` | Pretty-print the newest matching `.jsonl`. Pure read. |
-| `conveyor resume <task> [--to <role>]` | §6.10. |
+| `conveyor resume <task> [--to <role>]` | §6.10. Refused when the task is parked but has no board row, before anything is renamed. |
+| `conveyor workflow list\|show\|new\|edit\|delete\|activate` | Saved presets in `.conveyor/workflows/<slug>.json`, with `.conveyor/active` naming the applied one. `activate` rewrites the `role` and `gate` lines in `conveyor.conf`, keeping model and ceilings for roles the new order retains. Refused while any role's loop lock holds a live pid. Dropped roles' queue directories are reported, never removed; their worktrees are pruned by the next `conveyor start` (the branch is kept). |
 
 The operator's `task` command is the only place a handoff is created without `handoff.sh`. It MUST produce a file that passes every check in §4.2–4.4 with `from: operator`, and it goes through the same audit-free path because the operator is the human; `audit_count` is not incremented.
 

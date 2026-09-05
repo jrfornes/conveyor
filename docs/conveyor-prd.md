@@ -11,7 +11,7 @@
 
 ## 1. Summary
 
-Conveyor runs a fixed, two-role pipeline of Cursor CLI agents (coder → reviewer) against one git repository. Agents are isolated in git worktrees, run headless one task at a time, and hand work to each other only through validated commit-bearing files in inbox/outbox directories. A human writes the task, watches a log, and reads the resulting branch. There is no UI in the MVP.
+Conveyor runs a fixed coding pipeline of Cursor CLI agents against one git repository. The default pack is two roles (coder → reviewer); a three-pack (specifier → coder → reviewer) adds a spec-approval gate. Agents are isolated in git worktrees, run headless one task at a time, and hand work to each other only through validated commit-bearing files in inbox/outbox directories. Intake (manual or optional Jira) is a separate one-shot ticket-reviewer, not a coding role. Files remain the system of record; the UI wraps CLI commands.
 
 The thesis is unchanged from the north star: **coordinate agents through the filesystem and git, keep every mechanism boring and inspectable, and make each agent own one way the work can go wrong.**
 
@@ -31,7 +31,7 @@ Conveyor's MVP addresses the first, second, third, and last of these with git wo
 
 ### In
 - Cursor CLI (`agent` / `cursor-agent`) as the only backend, run in print mode (`-p`) with `--force`.
-- Exactly two roles, **coder** and **reviewer**, each on a configured model.
+- Two or three coding roles from `conveyor.conf` (default two-pack: **coder** then **reviewer**; optional three-pack: **specifier**, **coder**, **reviewer**), each on a configured model.
 - One git worktree per role plus the main checkout as the integration tree.
 - A file-based handoff protocol with a single validator script and a two-call audit gate.
 - A single loop script per role that dequeues, runs the agent headless, validates the handoff, and forwards.
@@ -42,8 +42,7 @@ Conveyor's MVP addresses the first, second, third, and last of these with git wo
 ### Out (see Appendix B)
 - Any web dashboard, chat, chime, or pane viewer.
 - tmux, interactive sessions, wake-ups, watchdogs.
-- Approval gate, clarification channel, specifier role, review comments per document.
-- More than two roles, batch receive mode, back-propagation, pipeline templates.
+- Clarification channel, review comments per document, batch receive, back-propagation, 4+/six-pack templates.
 - Any backend other than Cursor.
 - Mandatory mutation/CRAP/DRY tooling.
 - Token/cost metering.
@@ -111,7 +110,7 @@ Components (all shell or one small scripting language, a few hundred lines total
 
 | ID | Pri | Requirement |
 |---|---|---|
-| CFG-1 | M | `conveyor.conf`, one role per line in pipeline order: `role <name> <model> [max_retries=N] [max_minutes=N] [max_attempts=N] [cli-args…]`. Exactly two roles: `coder` then `reviewer`. |
+| CFG-1 | M | `conveyor.conf`, one role per line in pipeline order: `role <name> <model> [max_retries=N] [max_minutes=N] [max_attempts=N] [cli-args…]`. Two or three coding roles. Default two-pack: `coder` then `reviewer`. Optional three-pack: `specifier`, `coder`, `reviewer`. An optional `[inbox]` section holds Jira adapter settings. |
 | CFG-2 | M | Model names are strings passed straight to `agent --model`. At start, run `agent models` and fail if a configured model is not listed. |
 | CFG-3 | M | Role names contain no underscores or path separators. |
 | CFG-4 | M | Defaults: `max_retries=3`, `max_minutes=120`, `max_attempts=3`. |
@@ -279,18 +278,16 @@ Everything from v0.1 and the north-star document that is not in the MVP. Each it
 - **Adding it:** a `session=interactive` option per role; loops send `You have new handoff mail…` into the pane instead of spawning `-p`; a `ready.sh` the agent runs itself; the watchdog re-attaches missing panes. `.cursor/rules` injection still works in interactive mode.
 
 ### B.3 More roles and pipeline templates (north star: Ideas 3, 7; v0.1 CFG-4, PIP-1..5, VER-5)
-- **Deferred because:** each role must own a named failure mode; the MVP has evidence for exactly one (unverified completion).
-- **Adding it:** more lines in `conveyor.conf`; `to:` in the reviewer's handoff becomes the next role rather than `done`. Then, in order of need: unconditional forwarding for intermediate roles (PIP-1); the structural Done condition where the last role's `to:` lists every other role (PIP-3); batch receive mode for review-type roles (PIP-4); `back-one` / `back-all` merge-only handoffs with a `non-forwarding` header that the validator refuses to forward from (PIP-2). Templates two/four/six-pack as sample configs.
+- **Partially in scope:** coding pipelines of any length (≥ 1); `conveyor workflow activate <slug>` over saved presets in `.conveyor/workflows/`; an optional `gate <role>` line holding that role's `ready` for the operator (a three-role pipeline with no `gate` line gates its first role, preserving the original three-pack behaviour; `gate none` states the ungated case explicitly); findings always go to the penultimate role, and a one-role pipeline has none.
+- **Still deferred:** four+/six-pack, batch receive mode (PIP-4), `back-one` / `back-all` merge-only handoffs with a `non-forwarding` header (PIP-2), structural Done where the last role's `to:` lists every other role (PIP-3).
 
 ### B.4 Mandatory verification tooling (north star: Idea 2; v0.1 VER-4)
 - **Deferred because:** it requires CRAP/DRY/mutation/spec-mutation tools wired into the target project first, and a hardener role with something to run.
 - **Adding it:** `constitution/engineering.md` names the tools; differential mutation against a committed manifest, never `--mutate-all`, one tool at a time; Gherkin specs mutation-tested so decorative acceptance tests are caught. Coverage is a hint, mutation score is the truth.
 
 ### B.5 Human gates: approval and clarification (north star: Idea 6; v0.1 HUM-1..4, spec F3–F7)
-- **Deferred because:** with no specifier role there is no spec to approve, and headless agents cannot ask questions mid-task.
-- **Adding approval:** a `master` role whose `git_handoff` goes to `.conveyor/approvals/pending/` instead of an inbox; `conveyor approve <id>` / `conveyor reject <id> --comments file` move it on. Reject writes findings the agent reads on retry; `task_id` and `audit_count` survive.
-- **Adding clarification:** `conveyor-clarify <file>` writes to `chat/pending/<id>`; requires interactive sessions (B.2) so the answer can be injected as `[id] text`, or a headless variant where the agent ends its run with a `question` verdict and the loop waits for `conveyor answer <id>`.
-- **Adding per-document review comments:** the `comments` map and history from spec §2.4 / F5.
+- **Partially in scope:** human intake approval before the coding pack (`conveyor inbox approve`); three-pack specifier `ready` held in `.conveyor/approvals/pending/`; `conveyor approve <id>` / `conveyor reject <id>` with comments. Reject writes findings the specifier reads on retry; `task_id` and `audit_count` survive. No batch, no back-propagation.
+- **Still deferred:** clarification chat (`conveyor-clarify` / `question` verdict); per-document review comments (spec §2.4 / F5).
 
 ### B.6 Dashboard (north star: Idea 5; `orchestration-dashboard-spec.md` F1–F16)
 - **Deferred because:** the operator is at the machine and `conveyor status` + `tail -f` cover supervision; the dashboard is roughly half the total build.

@@ -1,5 +1,7 @@
 # Orchestration Dashboard — Feature Specification
 
+**Do not implement.** Superseded by `design_handoff_conveyor/` (PRD B.6).
+
 Purpose: a local, single-page web dashboard for supervising a pipeline of AI coding agents. Modeled on the SwarmForge dashboard (`swarmforge/scripts/pack_web.bb` + `pack/dashboard.html`, read September 2026), rewritten here as a stack-independent spec so it can be implemented on another project.
 
 This document is the source of truth for scope. Anything not listed under a feature is out of scope unless the "Open questions" section says otherwise.

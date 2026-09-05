@@ -18,19 +18,19 @@
 ## 2. Models
 
 ```
-cursor-agent models
+cursor-agent --list-models
 ```
 
-Copy two names into `conveyor.conf`, from different model families. `conveyor start` refuses any name not in that list. Effort is encoded in the model name on Cursor (`-low`, `-high`, `-max` suffixes where offered), not as a flag.
+(`cursor-agent models` still works.) Copy two names into `conveyor.conf`, from different model families. `conveyor start` refuses any name not in that list. Effort is encoded in the model name on Cursor (`-low`, `-high`, `-max` suffixes where offered), not as a flag.
 
 ## 3. Project setup
 
-1. Copy this bundle's `constitution.md`, `constitution/`, `roles/`, `project.md`, `conveyor.conf.example`, `.gitignore` entries, and `tasks/` into the target repo root. Commit them.
+1. From the target repo root (with `conveyor` on `PATH`): `conveyor init`. This copies `constitution.md`, `constitution/`, `roles/`, `conveyor.conf.example`, and (only if missing) `project.md`; creates `conveyor.conf` from the example when missing; creates `tasks/`; and appends the required `.gitignore` entries. Safe to re-run — operator-owned files are never overwritten. Review and commit.
 2. Edit `project.md`: test command, language, anything the reviewer should treat as a requirement.
-3. `cp conveyor.conf.example conveyor.conf` and fill in models.
-4. Make sure the project's test command passes on a clean checkout. Agents will run it on every handoff.
+3. Edit `conveyor.conf` and fill in the two model names.
+4. Make sure the project's test command passes on a clean checkout. On `ready` and `pass`, `handoff.sh` runs the `## Test command` fence from the worktree's `project.md`. An empty fence (or only an HTML comment) is skipped. A nonzero exit is `E_GATE_FAILED`; `cat .conveyor/logs/gates/<role>-<task>-<commit>.txt` for the output.
 5. `conveyor start`. It will:
-   - create `.worktrees/coder` and `.worktrees/reviewer` on branches `conveyor-coder`, `conveyor-reviewer`
+   - create one `.worktrees/<role>` per configured role on branch `conveyor-<role>` (e.g. `.worktrees/coder`, `.worktrees/reviewer` for the default Review belt)
    - write `.cursor/rules/conveyor-role.mdc` into each (constitution + role, concatenated)
    - install the byline `commit-msg` hook
    - create `.conveyor/` queue directories and `board.tsv`
@@ -49,6 +49,12 @@ Copy two names into `conveyor.conf`, from different model families. `conveyor st
 | Unstick a parked task | read `.conveyor/needs-human/<task>/reason`, fix the cause, `conveyor resume <task>` |
 | Stop cleanly | `conveyor stop` (waits for in-flight agent runs) |
 | Stop now | `conveyor stop --now` (kills agents; items stay in `in_process/` and resume on next start) |
+| Import a ticket | `conveyor import --source manual` (or `jira`) |
+| Run intake on an inbox item | `conveyor intake <id>` |
+| Accept or skip a graded ticket | `conveyor inbox approve <id>` or `conveyor inbox skip <id>` |
+| Approve or reject a gated handoff | `conveyor approve <id>` or `conveyor reject <id>` |
+| List or switch workflows | `conveyor workflow list` or `conveyor workflow activate <slug>` |
+| Open the localhost cockpit | `conveyor-ui` (or `conveyor-ui --demo` for a throwaway fixture) |
 
 Task names: `^[a-z0-9][a-z0-9.-]*$`, unique for the life of the board.
 

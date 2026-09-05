@@ -15,7 +15,7 @@ FAKE = os.path.join(TEST_DIR, "fake-agent")
 sys.path.insert(0, os.path.join(REPO, "lib"))
 from conveyor import board, handoff, layout  # noqa: E402
 
-BUNDLE = ["constitution.md", "constitution", "roles", "project.md", ".gitignore"]
+BUNDLE = ["constitution.md", "constitution", "roles", "project.md", "intake", ".gitignore"]
 CODER_OK = 'commit "Implement $TASK"\ndraft reviewer $TASK ready\nhandoff\nhandoff\n'
 REVIEWER_PASS = 'commit --empty "Verified $TASK"\ndraft done $TASK pass\nhandoff\nhandoff\n'
 REVIEWER_FINDINGS = ('commit --empty "Review: $TASK\\n\\n1. requirement 1 - not proven"\n'

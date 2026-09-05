@@ -5,6 +5,7 @@ Usage: handoff.sh <draft-path>
 Exit 0: queued. Exit 2: AUDIT_REQUIRED. Exit 1: any E_* error."""
 import hashlib
 import os
+import re
 import subprocess
 import sys
 
@@ -48,6 +49,8 @@ ERRORS = {
     "E_AMBIGUOUS_SHA": ("10-char abbreviation is ambiguous",
                         "Report this to the operator; it requires a longer abbreviation."),
     "E_LOCK": ("could not acquire a lock within 30 s", "Retry once. If it fails again, report it."),
+    "E_GATE_FAILED": ("project test command failed (exit {n})",
+                      "Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}.txt"),
 }
 
 AUDIT_TEXT = """AUDIT_REQUIRED: handoff for {task} not queued (audit {n})
@@ -83,6 +86,7 @@ def main():
     paths = layout.Paths(root)
     rp = paths.role(role)
     draft = sys.argv[1]
+    intake = role == config.INTAKE_ROLE
     # §4.1 preconditions
     if not inside(draft, os.path.join(wt, "tmp")) or not os.path.isfile(draft):
         fail("E_DRAFT_PATH")
@@ -112,18 +116,20 @@ def main():
     to, task, verdict = h["to"], h["task"], h["verdict"]
     if task != inbound["task"]:
         fail("E_TASK_MISMATCH", task=inbound["task"])
-    if to != "done" and to not in cfg.names():
+    allowed = list(cfg.names()) + ["done"] + (["operator"] if intake else [])
+    if to not in allowed:
         fail("E_BAD_RECIPIENT", to=to, list=", ".join(cfg.names()))
     if verdict not in config.VERDICTS:
         fail("E_BAD_VERDICT", verdict=verdict)
     if (role, to, verdict) not in cfg.routes():
         rows = "; ".join(f"to: {t}, verdict: {v}" for f, t, v in sorted(cfg.routes()) if f == role)
         fail("E_BAD_ROUTE", role=role, to=to, verdict=verdict, rows=rows)
-    if not util.git_ok(["cat-file", "-e", f"HEAD:tasks/{task}.md"], wt):
+    if not intake and not util.git_ok(["cat-file", "-e", f"HEAD:tasks/{task}.md"], wt):
         fail("E_TASK_FILE", task=task)
-    row = board.get(paths, task)
-    if row is None or row["lane"] != role:
-        fail("E_NOT_MY_TASK", task=task, lane=row["lane"] if row else "absent", role=role)
+    if not intake:
+        row = board.get(paths, task)
+        if row is None or row["lane"] != role:
+            fail("E_NOT_MY_TASK", task=task, lane=row["lane"] if row else "absent", role=role)
     # §4.3 commit validation, §4.4 canonicalization
     message = subprocess.run(["git", "log", "-1", "--format=%B", "HEAD"], cwd=wt,
                              capture_output=True, text=True, check=True).stdout
@@ -138,26 +144,79 @@ def main():
     if len(commit) != 10 or resolved != head:
         fail("E_AMBIGUOUS_SHA")
     body = message.rstrip("\n") + "\n"
+    # later: hop table / {inbound} / Run now
+    run_test_command(paths, wt, role, task, verdict, commit, intake)
     try:
-        gate(paths, rp, role, task, to, verdict, commit, body)
+        gate(paths, rp, role, task, to, verdict, commit, body, intake=intake)
     except util.LockTimeout:
         fail("E_LOCK")
 
 
-def gate(paths, rp, role, task, to, verdict, commit, body):
+def test_command(wt):
+    path = os.path.join(wt, "project.md")
+    if not os.path.isfile(path):
+        return ""
+    collecting, section = False, []
+    for line in util.read_text(path).splitlines():
+        if not collecting:
+            if line.startswith("## Test command"):
+                collecting = True
+            continue
+        if line.startswith("## "):
+            break
+        section.append(line)
+    body = "\n".join(section)
+    start = body.find("```")
+    if start < 0:
+        return ""
+    nl = body.find("\n", start)
+    if nl < 0:
+        return ""
+    end = body.find("```", nl + 1)
+    if end < 0:
+        return ""
+    fence = re.sub(r"<!--.*?-->", "", body[nl + 1:end], flags=re.DOTALL)
+    for line in fence.splitlines():
+        s = line.strip()
+        if s:
+            return s
+    return ""
+
+
+def run_test_command(paths, wt, role, task, verdict, commit, intake):
+    if intake or verdict == "findings":
+        return
+    cmd = test_command(wt)
+    if not cmd:
+        return
+    r = subprocess.run(cmd, shell=True, cwd=wt, capture_output=True, text=True)
+    if r.returncode == 0:
+        return
+    os.makedirs(paths.gates, exist_ok=True)
+    util.atomic_write(os.path.join(paths.gates, f"{role}-{task}-{commit}.txt"),
+                      f"exit: {r.returncode}\nargv: {cmd}\n--- stdout ---\n{r.stdout}--- stderr ---\n{r.stderr}")
+    fail("E_GATE_FAILED", n=r.returncode, role=role, task=task, commit=commit)
+
+
+def gate(paths, rp, role, task, to, verdict, commit, body, intake=False):
     # §5 audit gate
     fp = hashlib.sha256(f"{commit}\n{to}\n{task}\n{verdict}\n".encode()).hexdigest()
     fpfile = os.path.join(rp.audit_pending, f"{task}.fp")
     pending = handoff.read(fpfile)[0] if os.path.exists(fpfile) else {}
     if pending.get("fp") != fp:
         util.atomic_write(fpfile, f"fp: {fp}\ncommit: {commit}\nchallenged_at: {util.now()}\n")
-        row = board.update(paths, task, audit_count="+1")
-        print(AUDIT_TEXT.format(task=task, n=row["audit_count"]))
+        n = "1"
+        if not intake:
+            n = board.update(paths, task, audit_count="+1")["audit_count"]
+        print(AUDIT_TEXT.format(task=task, n=n))
         sys.exit(2)
     # §4.6 installation
     seq = queue.issue_seq(rp)
-    with util.lock(paths.board_lock):
-        task_id = board.get(paths, task)["task_id"]
+    if intake:
+        task_id = f"intake-{task}"
+    else:
+        with util.lock(paths.board_lock):
+            task_id = board.get(paths, task)["task_id"]
     headers = {"to": to, "task": task, "verdict": verdict, "type": "git_handoff",
                "id": f"{role}-{seq:06d}", "from": role, "commit": commit,
                "task_id": task_id, "created_at": util.now()}

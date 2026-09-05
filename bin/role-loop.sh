@@ -11,7 +11,7 @@ import time
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
-from conveyor import board, config, handoff, layout, queue, util  # noqa: E402
+from conveyor import board, config, handoff, inbox, layout, queue, util  # noqa: E402
 
 SESSION_RE = re.compile(r'"session_?[iI]d"\s*:\s*"([^"]+)"')
 VALIDATOR_RE = re.compile(r'(?:E_[A-Z_]+|AUDIT_REQUIRED): [^"\\\n]*')
@@ -105,14 +105,23 @@ class Loop:
         if not queue.merge(h["commit"], self.wt, self.role):
             return park("merge-conflict", f"merging {h['commit']} into conveyor-{self.role} conflicted")
         util.crash_point("after-merge")
-        row = board.get(self.paths, task)
-        if row is None:
+        intake = self.role == config.INTAKE_ROLE
+        row = None if intake else board.get(self.paths, task)
+        if not intake and row is None:
             return queue.fail(self.rp, path, "no-board-row")
-        started = queue.started_at(self.paths, row, h)
-        if int(row["retry_count"]) > self.me.max_retries:
-            return park("max-retries", f"reviewer sent findings {row['retry_count']} times")
-        if started and util.age_seconds(started) > self.me.max_minutes * 60:
-            return park("max-minutes", f"task started {started}, exceeds max_minutes {self.me.max_minutes}")
+        if intake:
+            started = h.get("dequeued_at")
+        else:
+            started = queue.started_at(self.paths, row, h)
+            if int(row["retry_count"]) > self.me.max_retries:
+                return park("max-retries", f"reviewer sent findings {row['retry_count']} times")
+        # Intake is one-shot: `>=` so max_minutes=0 parks on the same pass.
+        # Belt roles keep `>` so a just-started task still gets one attempt (M4).
+        if started:
+            age = util.age_seconds(started)
+            over = age >= self.me.max_minutes * 60 if intake else age > self.me.max_minutes * 60
+            if over:
+                return park("max-minutes", f"task started {started}, exceeds max_minutes {self.me.max_minutes}")
         attempt, session, last_err, ran = int(h.get("attempt", 1)), h.get("session"), None, False
         while True:
             n = self.valid_outbox_count()
@@ -161,12 +170,40 @@ class Loop:
         return n
 
     def build_prompt(self, path, task, attempt, last_err):
+        if self.role == config.INTAKE_ROLE:
+            return self.build_intake_prompt(path, task, attempt, last_err)
         text = util.git(["show", f"HEAD:tasks/{task}.md"], self.wt, check=False)
         if not text:
             return None
         parts = ["Re-read your role and constitution.",
                  f"Task: {task}\n{text}",
                  "Inbound handoff:\n" + util.read_text(path).rstrip("\n")]
+        if attempt > 1:
+            parts.append("Your previous attempt ended without a valid handoff. Last validator output:\n"
+                         + (last_err or "No handoff.sh call was observed."))
+        parts.append("When finished, write ./tmp/handoff.txt and run handoff.sh ./tmp/handoff.txt. "
+                     "Do not end your run until it prints OK.")
+        return "\n\n".join(parts)
+
+    def build_intake_prompt(self, path, task, attempt, last_err):
+        source = inbox.read_file(self.paths, task, "source.md")
+        comments = inbox.read_file(self.paths, task, "comments.txt")
+        inbound = util.read_text(path)
+        improve = "mode: improve" in inbound
+        parts = ["Re-read your role and constitution.",
+                 f"Task: {task}",
+                 f"Mode: {'improve' if improve else 'grade'}",
+                 "Original ticket:\n" + (source or "(empty)")]
+        if comments.strip():
+            parts.append("Operator comments:\n" + comments)
+        parts.append("Inbound handoff:\n" + inbound.rstrip("\n"))
+        if improve:
+            parts.append("Write grade.md (Ready, Gaps, or Unusable plus the gap list) and "
+                         "proposed-task.md (numbered task markdown; mark invented vs quoted). "
+                         "Commit both. Hand off `to: operator`, `verdict: ready`.")
+        else:
+            parts.append("Write grade.md with Ready, Gaps, or Unusable against the rubric. "
+                         "Commit it. Hand off `to: operator`, `verdict: ready`. Do not write tasks/.")
         if attempt > 1:
             parts.append("Your previous attempt ended without a valid handoff. Last validator output:\n"
                          + (last_err or "No handoff.sh call was observed."))

@@ -14,7 +14,9 @@ verdict: <ready | pass | findings>
 
 Nothing else. No blank line followed by text, no other headers. Your commit message is the body.
 
-Which values you may use depends on your role:
+Which `(to, verdict)` pairs you may use depends on your role and on `conveyor.conf` order — never invent a recipient. The validator computes permitted triples from the coding-pack order (operator → first; adjacent `ready`; last → `done`/`pass`; last → penultimate/`findings`). Intake is separate: `ticket-reviewer` sends `to: operator`, `verdict: ready`.
+
+Two-pack example (`coder` then `reviewer`):
 
 | You are | to | verdict | When |
 |---|---|---|---|
@@ -44,9 +46,10 @@ The number of times you are challenged is recorded and visible to the operator.
 Every error prints a code, one line describing the problem, and repair text. Follow the repair text literally. The ones you are most likely to see:
 
 - `E_DIRTY` — you have uncommitted changes. Commit or discard them.
+- `E_GATE_FAILED` — the project test command failed. Fix the failures, commit, and retry. Output is in `.conveyor/logs/gates/`.
 - `E_NO_BYLINE` — you committed with hooks disabled. `git commit --amend --no-edit` (without `--no-verify`).
 - `E_NO_CHANGE` — HEAD is the same commit you received. Commit your work. As reviewer sending `findings`, an empty commit (`git commit --allow-empty`) carrying the findings is the expected form.
-- `E_BAD_ROUTE` — that `(to, verdict)` is not permitted for your role. Use the table above.
+- `E_BAD_ROUTE` — that `(to, verdict)` is not permitted for your role. Use the triples from `conveyor.conf` (two-pack example in the table above).
 - `E_TASK_MISMATCH` — the task name is not the one in your prompt.
 - `E_RESERVED_HEADER` — delete that line; the script fills it.
 - `E_DRAFT_HAS_BODY` — remove everything after the three lines.

@@ -2,7 +2,7 @@
 import os
 import unittest
 
-from harness import ConveyorTest, layout
+from harness import ConveyorTest, layout, read
 
 
 class SingleWriter(ConveyorTest):
@@ -32,7 +32,7 @@ class SingleWriter(ConveyorTest):
         rp = fx.paths.role("coder")
         self.assertEqual(layout.handoffs(rp.outbox), [])
         self.assertIn("x.handoff", os.listdir(rp.failed))
-        self.assertIn("missing header", open(os.path.join(rp.failed, "x.handoff.reason")).read())
+        self.assertIn("missing header", read(os.path.join(rp.failed, "x.handoff.reason")))
 
 
 if __name__ == "__main__":

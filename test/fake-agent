@@ -10,8 +10,8 @@
 A literal \n inside a quoted argument becomes a newline.
 
 If CONVEYOR_FAKE_SCRIPT is a directory, <dir>/<role> is used; <dir>/<role>.resume
-when invoked with --resume and that file exists. `models` lists CONVEYOR_FAKE_MODELS
-(comma separated; default composer-2.5,gpt-5)."""
+when invoked with --resume and that file exists. `--list-models` and `models`
+list CONVEYOR_FAKE_MODELS (comma separated; default composer-2.5,gpt-5)."""
 import json
 import os
 import re
@@ -27,7 +27,7 @@ def emit(**ev):
 
 def main():
     args = sys.argv[1:]
-    if args[:1] == ["models"]:
+    if args[:1] in (["models"], ["--list-models"]):
         print("\n".join(os.environ.get("CONVEYOR_FAKE_MODELS", "composer-2.5,gpt-5").split(",")))
         return
     if args[:1] == ["--version"]:

@@ -100,5 +100,14 @@ class M4Minutes(ConveyorTest):
         self.assertNotEqual(fx.board()["slow"]["started_at"], "-")
 
 
+class IntakeCeilingsDoNotChangeBelt(ConveyorTest):
+    def test_inbox_zero_does_not_rewrite_coder_minutes(self):
+        from conveyor import config
+        config.write_inbox(self.fx.root, {"ticket_reviewer_max_minutes": "0"})
+        cfg = config.load(self.fx.root)
+        self.assertEqual(cfg.role("coder").max_minutes, 120)
+        self.assertEqual(cfg.role(config.INTAKE_ROLE).max_minutes, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

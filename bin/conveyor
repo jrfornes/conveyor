@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """Conveyor operator CLI (protocol §10, runbook §4–7).
 
-conveyor init [<path>] | start | stop [--now] | task <name> [--delete] | status | log <role> [<task>] | resume <task> [--to <role>]
+conveyor init [<path>] | start | stop [--now] | task <name> [--delete]
+           | status | log <role> [<task>] | resume <task> [--to <role>]
+           | import --source manual|jira [--title ...]
+           | intake <id> [--improve] | intake config | intake jira
+           | inbox approve <id> [--name <task>] | inbox skip <id>
+           | start-task <name> | approve <id> | reject <id>
+           | workflow list | show <slug> | new <name> --roles a,b,c [--gate <role>]
+                    | edit <slug> [...] | delete <slug> | activate <slug>
 """
 import json
 import os
@@ -13,15 +20,17 @@ import time
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
-from conveyor import board, config, handoff, layout, queue, util  # noqa: E402
+from conveyor import (adapters, agent as agentlib, board, config, handoff, inbox,  # noqa: E402
+                      intake as intakelib, jira as jiralib, layout, presets, queue, util)
 
 RULE_FILES = ["constitution.md", "constitution/engineering.md", "constitution/workflow.md",
               "constitution/handoffs.md", "project.md"]
 GITIGNORE = [".worktrees/", ".conveyor/", ".cursor/rules/conveyor-role.mdc", "tmp/"]
 REPO = os.path.dirname(BIN)
 SHIPPED = ["constitution.md", "constitution/engineering.md", "constitution/workflow.md",
-           "constitution/handoffs.md", "roles/coder.md", "roles/reviewer.md", "conveyor.conf.example"]
-TEMPLATED = ["project.md"]  # copied only if missing; the operator owns it after that
+           "constitution/handoffs.md", "roles/coder.md", "roles/reviewer.md",
+           "roles/specifier.md", "conveyor.conf.example"]
+TEMPLATED = ["project.md", "intake/ticket-reviewer.md", "intake/rubric.md"]
 
 
 def root_dir():
@@ -44,12 +53,65 @@ def setup():
     return root, cfg, layout.Paths(root)
 
 
-def loop_pid(paths, role):
-    try:
-        pid = int(util.read_text(os.path.join(paths.role(role).loop_lock, "pid")))
-        return pid if util._pid_alive(pid) else 0
-    except (OSError, ValueError):
-        return 0
+def install_hook(root):
+    hooks = os.path.join(util.git(["rev-parse", "--path-format=absolute", "--git-common-dir"], root), "hooks")
+    os.makedirs(hooks, exist_ok=True)
+    shutil.copy(os.path.join(BIN, "hooks", "commit-msg"), os.path.join(hooks, "commit-msg"))
+    os.chmod(os.path.join(hooks, "commit-msg"), 0o755)
+
+
+def ensure_worktree(root, paths, role_name):
+    wt = paths.worktree(role_name)
+    if not os.path.exists(os.path.join(wt, ".git")):
+        util.git(["worktree", "add", "--force", "-B", f"conveyor-{role_name}", wt, "HEAD"], root)
+    os.makedirs(os.path.join(wt, "tmp"), exist_ok=True)
+    os.makedirs(os.path.join(wt, ".cursor", "rules"), exist_ok=True)
+    rules = "".join(util.read_text(os.path.join(root, f)) + "\n" for f in RULE_FILES)
+    if role_name == config.INTAKE_ROLE:
+        rubric = intakelib.read_rubric(root)
+        if rubric.strip():
+            rules += f"# Grading rubric ({intakelib.RUBRIC_REL})\n\n" + rubric.rstrip("\n") + "\n\n"
+        role_md = intakelib.prompt_path(root)
+    else:
+        role_md = os.path.join(root, "roles", f"{role_name}.md")
+    util.atomic_write(os.path.join(wt, ".cursor", "rules", "conveyor-role.mdc"),
+                      f"---\ndescription: Conveyor rules for role {role_name}\nalwaysApply: true\n---\n\n"
+                      + rules + util.read_text(role_md))
+    return wt
+
+
+def enqueue_task(root, cfg, paths, name):
+    """Board row + operator ready handoff for an already-written tasks/<name>.md."""
+    if board.get(paths, name) is not None:
+        util.die(f"conveyor: {name} already exists (lane {board.get(paths, name)['lane']})")
+    rel = f"tasks/{name}.md"
+    if not os.path.isfile(os.path.join(root, rel)):
+        util.die(f"conveyor: missing {rel}")
+    board.add(paths, name, cfg.names()[0])
+    op = paths.role("operator")
+    message = subprocess.run(["git", "log", "-1", "--format=%B", "HEAD"], cwd=root,
+                             capture_output=True, text=True, check=True).stdout
+    headers = {"to": cfg.names()[0], "task": name, "verdict": "ready", "type": "git_handoff",
+               "id": f"operator-{queue.issue_seq(op):06d}", "from": "operator",
+               "commit": util.git(["rev-parse", "--short=10", "HEAD"], root),
+               "task_id": board.get(paths, name)["task_id"], "created_at": util.now()}
+    queue.install(op, headers, message.rstrip("\n") + "\n")
+    queue.sweep(paths, cfg, "operator")
+    return headers
+
+
+loop_pid = layout.loop_pid
+
+
+def clear_park(paths, task):
+    """Remove needs-human/<task>/ and whatever is left in it. True if it existed."""
+    d = os.path.join(paths.needs_human, task)
+    if not os.path.isdir(d):
+        return False
+    for f in os.listdir(d):
+        os.remove(os.path.join(d, f))
+    os.rmdir(d)
+    return True
 
 
 # --- init ---------------------------------------------------------------
@@ -58,6 +120,10 @@ def cmd_init(args):
     if not util.git_ok(["rev-parse", "--is-inside-work-tree"], target):
         util.die(f"conveyor init: {target} is not a git checkout; run git init there first")
     os.makedirs(os.path.join(target, "tasks"), exist_ok=True)
+    try:
+        intakelib.migrate(target)
+    except intakelib.IntakeError as e:
+        util.die(f"conveyor init: {e}")
     for rel in SHIPPED:
         src, dst = os.path.join(REPO, rel), os.path.join(target, rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -65,6 +131,7 @@ def cmd_init(args):
     for rel in TEMPLATED:
         dst = os.path.join(target, rel)
         if not os.path.exists(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy(os.path.join(REPO, rel), dst)
     conf = os.path.join(target, "conveyor.conf")
     if not os.path.exists(conf):
@@ -81,16 +148,71 @@ def cmd_init(args):
 
 
 # --- start / stop -----------------------------------------------------------
+def _git_worktrees(root):
+    """{realpath: branch-ref} from `git worktree list --porcelain` stanzas."""
+    out = {}
+    r = subprocess.run(["git", "worktree", "list", "--porcelain"],
+                       cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        return out
+    for stanza in r.stdout.split("\n\n"):
+        wt, branch = "", ""
+        for line in stanza.splitlines():
+            if line.startswith("worktree "):
+                wt = line[len("worktree "):].strip()
+            elif line.startswith("branch "):
+                branch = line[len("branch "):].strip()
+        if wt:
+            out[os.path.realpath(wt)] = branch
+    return out
+
+
+def prune_stale_worktrees(root, cfg, paths):
+    """Remove .worktrees/<role> for roles the active workflow no longer configures.
+
+    `git worktree remove` deletes the working directory and git's admin files
+    only; the conveyor-<role> branch is untouched (branch deletion is `git
+    branch -d/-D`, which we never run). Without --force git refuses on a dirty
+    worktree, so uncommitted work degrades to a warning instead of being lost.
+
+    Note the branch is only durable until the role comes back: ensure_worktree
+    recreates with `-B`, which would reset conveyor-<role> to HEAD.
+    """
+    if not os.path.isdir(paths.worktrees):
+        return
+    live = _git_worktrees(root)
+    keep = set(cfg.names()) | {config.INTAKE_ROLE}  # intake is never in cfg.names()
+    for name in sorted(os.listdir(paths.worktrees)):
+        if name in keep:
+            continue
+        wt = paths.worktree(name)
+        # Only touch what git calls a worktree on this role's own branch, so a
+        # directory a human parked under .worktrees/ is never removed.
+        if live.get(os.path.realpath(wt)) != f"refs/heads/conveyor-{name}":
+            continue
+        if layout.loop_pid(paths, name):
+            print(f"warning: {name} left the workflow but its loop is still running; "
+                  f"run `conveyor stop` before starting again")
+            continue
+        if util.git_ok(["worktree", "remove", wt], root):
+            print(f"removed stale worktree .worktrees/{name} "
+                  f"(branch conveyor-{name} kept)")
+        else:
+            print(f"warning: .worktrees/{name} has uncommitted changes; remove it "
+                  f"with: git worktree remove --force .worktrees/{name}")
+
+
 def cmd_start(args):
     root, cfg, paths = setup()
     agent = os.environ.get("CONVEYOR_AGENT_BIN", cfg.agent_bin)
     for r in cfg.roles:
         if not os.path.isfile(os.path.join(root, "roles", f"{r.name}.md")):
             util.die(f"conveyor start: roles/{r.name}.md is missing")
-    r = subprocess.run([agent, "models"], capture_output=True, text=True)
-    if r.returncode != 0:
-        util.die(f"conveyor start: `{agent} models` failed: {r.stderr.strip() or r.stdout.strip()}")
-    models = {line.split()[0] for line in r.stdout.splitlines() if line.strip()}
+    try:
+        listed = agentlib.list_models(agent)
+    except agentlib.AgentError as e:
+        util.die(f"conveyor start: {e}")
+    models = {m["id"] for m in listed}
     for role in cfg.roles:
         if role.model not in models:
             util.die(f"conveyor start: unknown model {role.model!r} for role {role.name}; "
@@ -105,20 +227,11 @@ def cmd_start(args):
         if entry not in ignored:
             print(f"warning: .gitignore lacks {entry}")
     paths.ensure(cfg)
-    hooks = os.path.join(util.git(["rev-parse", "--path-format=absolute", "--git-common-dir"], root), "hooks")
-    os.makedirs(hooks, exist_ok=True)
-    shutil.copy(os.path.join(BIN, "hooks", "commit-msg"), os.path.join(hooks, "commit-msg"))
-    os.chmod(os.path.join(hooks, "commit-msg"), 0o755)
-    rules = "".join(util.read_text(os.path.join(root, f)) + "\n" for f in RULE_FILES)
+    presets.ensure_seeded(paths)
+    install_hook(root)
+    prune_stale_worktrees(root, cfg, paths)
     for role in cfg.roles:
-        wt = paths.worktree(role.name)
-        if not os.path.exists(os.path.join(wt, ".git")):  # never reset an existing worktree
-            util.git(["worktree", "add", "--force", "-B", f"conveyor-{role.name}", wt, "HEAD"], root)
-        os.makedirs(os.path.join(wt, "tmp"), exist_ok=True)
-        os.makedirs(os.path.join(wt, ".cursor", "rules"), exist_ok=True)
-        util.atomic_write(os.path.join(wt, ".cursor", "rules", "conveyor-role.mdc"),
-                          f"---\ndescription: Conveyor rules for role {role.name}\nalwaysApply: true\n---\n\n"
-                          + rules + util.read_text(os.path.join(root, "roles", f"{role.name}.md")))
+        wt = ensure_worktree(root, paths, role.name)
         rp = paths.role(role.name)
         if os.path.exists(rp.stop):
             os.remove(rp.stop)
@@ -171,7 +284,13 @@ def cmd_task(args):
         if row["lane"] in cfg.names():
             util.die(f"conveyor task: {name} is in lane {row['lane']}; stop it or wait before deleting")
         board.delete(paths, name)
-        return print(f"deleted board row for {name}")
+        for role in os.listdir(paths.roles):
+            fp = os.path.join(paths.role(role).audit_pending, f"{name}.fp")
+            if os.path.isfile(fp):
+                os.remove(fp)
+        parked = clear_park(paths, name)  # the row and the park entry die together
+        return print(f"deleted board row for {name}"
+                     + (" and its needs-human entry" if parked else ""))
     if row is not None:
         util.die(f"conveyor task: {name} already exists (lane {row['lane']})")
     if sys.stdin.isatty():
@@ -192,16 +311,7 @@ def cmd_task(args):
         env = {k: v for k, v in os.environ.items() if k != "CONVEYOR_ROLE"}
         subprocess.run(["git", "commit", "-q", "-m", f"Add task {name}", "--", rel], cwd=root,
                        env=env, check=True)
-    board.add(paths, name, cfg.names()[0])
-    op = paths.role("operator")
-    message = subprocess.run(["git", "log", "-1", "--format=%B", "HEAD"], cwd=root,
-                             capture_output=True, text=True, check=True).stdout
-    headers = {"to": cfg.names()[0], "task": name, "verdict": "ready", "type": "git_handoff",
-               "id": f"operator-{queue.issue_seq(op):06d}", "from": "operator",
-               "commit": util.git(["rev-parse", "--short=10", "HEAD"], root),
-               "task_id": board.get(paths, name)["task_id"], "created_at": util.now()}
-    queue.install(op, headers, message.rstrip("\n") + "\n")
-    queue.sweep(paths, cfg, "operator")
+    headers = enqueue_task(root, cfg, paths, name)
     print(f"{headers['id']} queued for {headers['to']}")
 
 
@@ -264,6 +374,9 @@ def cmd_resume(args):
     item = os.path.join(d, "item.handoff")
     if not os.path.exists(item):
         util.die(f"conveyor resume: {task} is not parked")
+    if board.get(paths, task) is None:  # refuse before the rename; never half-resume
+        util.die(f"conveyor resume: {task} is parked but has no board row; "
+                 f"remove {os.path.join('.conveyor', 'needs-human', task)}/ to discard it")
     h = handoff.stamp(item, attempt=1)
     to = args[args.index("--to") + 1] if "--to" in args else h["to"]
     if to == "done":
@@ -274,13 +387,412 @@ def cmd_resume(args):
         util.die(f"conveyor resume: unknown role {to}")
     os.rename(item, os.path.join(dest, handoff.filename(h)))
     board.update(paths, task, lane=lane)
-    os.remove(os.path.join(d, "reason"))
-    os.rmdir(d)
+    clear_park(paths, task)
     print(f"{task} resumed to {to}" + (" (delivered by the next sweep)" if to == "done" else ""))
 
 
+# --- import / intake / inbox ------------------------------------------------
+def _flag(args, name, default=None):
+    if name in args:
+        i = args.index(name)
+        if i + 1 < len(args) and not args[i + 1].startswith("--"):
+            return args[i + 1]
+    return default
+
+
+def _positionals(args):
+    skip = set()
+    for flag in ("--name", "--title", "--source", "--comments",
+                 "--roles", "--gate", "--description"):
+        if flag in args:
+            i = args.index(flag)
+            skip.add(i)
+            if i + 1 < len(args):
+                skip.add(i + 1)
+    return [a for i, a in enumerate(args) if i not in skip and not a.startswith("--")]
+
+
+def cmd_import(args):
+    root, cfg, paths = setup()
+    paths.ensure(cfg)
+    source = _flag(args, "--source", "manual")
+    title = _flag(args, "--title", "")
+    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+    try:
+        tickets = adapters.fetch(source, raw, cfg=cfg, title=title, paths=paths)
+    except ValueError as e:
+        util.die(f"conveyor import: {e}")
+    if source == "jira":
+        creds = jiralib.resolve(paths, cfg)
+        if not creds["email"] and (cfg.inbox.jira_base or cfg.inbox.jira_token_env):
+            print("notice: Jira Cloud body fetch needs email in .conveyor/local/jira.json "
+                  "(jira_token_env alone is not enough)")
+    created = []
+    for t in tickets:
+        iid = inbox.create(paths, {
+            "id": (t.get("external_id") or "").lower().replace("_", "-"),
+            "source": t["source"],
+            "title": t["title"],
+            "url": t.get("url") or "-",
+            "external_id": t.get("external_id") or "-",
+            "status": "imported",
+        }, t.get("body") or "")
+        created.append(iid)
+        print(f"imported {iid}  {t['title']}")
+    if not created:
+        util.die("conveyor import: nothing imported")
+
+
+def cmd_intake_config(args):
+    root, cfg, _paths = setup()
+    model = _flag(args, "--model")
+    minutes = _flag(args, "--minutes")
+    attempts = _flag(args, "--attempts")
+    if model is None and minutes is None and attempts is None:
+        tr = cfg.role(config.INTAKE_ROLE)
+        print(f"model {tr.model}")
+        print(f"max_minutes {tr.max_minutes}")
+        print(f"max_attempts {tr.max_attempts}")
+        return
+    updates = {}
+    if model is not None:
+        updates["ticket_reviewer_model"] = model
+    if minutes is not None:
+        updates["ticket_reviewer_max_minutes"] = minutes
+    if attempts is not None:
+        updates["ticket_reviewer_max_attempts"] = attempts
+    try:
+        config.write_inbox(root, updates)
+        cfg = config.load(root)
+    except config.ConfigError as e:
+        util.die(f"conveyor intake config: {e}")
+    tr = cfg.role(config.INTAKE_ROLE)
+    print(f"wrote [inbox] model={tr.model} max_minutes={tr.max_minutes} max_attempts={tr.max_attempts}")
+
+
+def cmd_intake_jira(args):
+    root, cfg, paths = setup()
+    if "--clear" in args:
+        jiralib.clear(paths)
+        print("cleared .conveyor/local/jira.json")
+        return
+    site = _flag(args, "--site")
+    email = _flag(args, "--email")
+    token = None
+    if "--token-stdin" in args:
+        token = sys.stdin.read()
+        if token.endswith("\n"):
+            token = token[:-1]
+    if site is not None or email is not None or token is not None:
+        existing = jiralib.read(paths)
+        jiralib.write(
+            paths,
+            existing["site"] if site is None else site,
+            existing["email"] if email is None else email,
+            existing["token"] if not token else token,
+        )
+        print("wrote .conveyor/local/jira.json")
+    if "--test" in args:
+        result = jiralib.check(paths, cfg)
+        print(f"{'ok' if result['ok'] else 'failed'} {result['status']} {result['message']}")
+        return
+    if site is None and email is None and token is None:
+        r = jiralib.redact(jiralib.read(paths))
+        print(f"site {r['site'] or '-'}")
+        print(f"email {r['email'] or '-'}")
+        print(f"token_set {r['token_set']}")
+
+
+def cmd_intake(args):
+    if args and args[0] == "config":
+        return cmd_intake_config(args[1:])
+    if args and args[0] == "jira":
+        return cmd_intake_jira(args[1:])
+    root, cfg, paths = setup()
+    names = [a for a in args if not a.startswith("--")]
+    if len(names) != 1:
+        util.die("usage: conveyor intake <id> [--improve] | conveyor intake config | conveyor intake jira")
+    iid = names[0]
+    improve = "--improve" in args
+    try:
+        meta = inbox.read_meta(paths, iid)
+    except inbox.InboxError as e:
+        util.die(f"conveyor intake: {e}")
+    comments = _flag(args, "--comments")
+    if comments:
+        inbox.write_file(paths, iid, "comments.txt", util.read_text(comments) if os.path.isfile(comments) else comments)
+    role_md = intakelib.prompt_path(root)
+    if not os.path.isfile(role_md):
+        util.die(f"conveyor intake: missing {role_md}")
+    inbox.update_meta(paths, iid, status="improving" if improve else "grading")
+    paths.ensure(cfg, extra_roles=(config.INTAKE_ROLE,))
+    install_hook(root)
+    wt = ensure_worktree(root, paths, config.INTAKE_ROLE)
+    # One-shot: start from current main so leftover grade.md cannot conflict.
+    util.git(["reset", "--hard", util.git(["rev-parse", "HEAD"], root)], wt)
+    src = inbox.read_file(paths, iid, "source.md")
+    util.atomic_write(os.path.join(wt, "tmp", "source.md"), src if src.endswith("\n") else src + "\n")
+    rp = paths.role(config.INTAKE_ROLE)
+    if os.path.exists(rp.stop):
+        os.remove(rp.stop)
+    queued = False
+    for d in (rp.new, rp.in_process):
+        for f in layout.handoffs(d):
+            try:
+                if handoff.read(os.path.join(d, f))[0].get("task") == iid:
+                    queued = True
+            except (handoff.ParseError, OSError):
+                pass
+    if not queued:
+        op = paths.role("operator")
+        commit = util.git(["rev-parse", "--short=10", "HEAD"], root)
+        mode = "improve" if improve else "grade"
+        headers = {"to": config.INTAKE_ROLE, "task": iid, "verdict": "ready", "type": "git_handoff",
+                   "id": f"operator-{queue.issue_seq(op):06d}", "from": "operator",
+                   "commit": commit, "task_id": f"intake-{iid}", "created_at": util.now(),
+                   "enqueued_at": util.now()}
+        body = f"mode: {mode}\n\n{src}"
+        tmp = os.path.join(rp.inbox_tmp, handoff.filename(headers))
+        handoff.write(tmp, headers, body if body.endswith("\n") else body + "\n")
+        os.rename(tmp, os.path.join(rp.new, handoff.filename(headers)))
+    agent = os.environ.get("CONVEYOR_AGENT_BIN", cfg.agent_bin)
+    env = {**os.environ, "CONVEYOR_ROLE": config.INTAKE_ROLE, "CONVEYOR_WORKTREE": wt,
+           "CONVEYOR_ROOT": root, "CONVEYOR_AGENT_BIN": agent}
+    os.makedirs(os.path.join(paths.logs, config.INTAKE_ROLE), exist_ok=True)
+    r = subprocess.run([os.path.join(BIN, "role-loop.sh"), "--once"], cwd=root, env=env,
+                       capture_output=True, text=True)
+    park_dir = os.path.join(paths.needs_human, iid)
+    if os.path.isdir(park_dir):
+        reason = "parked"
+        try:
+            reason = util.read_text(os.path.join(park_dir, "reason")).split("\n")[0] or reason
+        except OSError:
+            pass
+        clear_park(paths, iid)
+        inbox.update_meta(paths, iid, status="imported")
+        util.die(f"conveyor intake: parked ({reason}); {iid} reset to imported")
+    if r.returncode != 0:
+        util.die(f"conveyor intake: ticket-reviewer loop failed ({r.returncode}):\n{r.stdout}{r.stderr}")
+    print((r.stdout or "").strip() or f"intake {iid} finished")
+
+
+def cmd_inbox(args):
+    if not args or args[0] not in ("approve", "skip"):
+        util.die("usage: conveyor inbox approve <id> [--name <task>] | conveyor inbox skip <id>")
+    root, cfg, paths = setup()
+    paths.ensure(cfg)
+    if args[0] == "skip":
+        if len(args) < 2:
+            util.die("usage: conveyor inbox skip <id>")
+        try:
+            inbox.update_meta(paths, args[1], status="skipped")
+        except inbox.InboxError as e:
+            util.die(f"conveyor inbox: {e}")
+        return print(f"skipped {args[1]}")
+    names = _positionals(args[1:])
+    if len(names) != 1:
+        util.die("usage: conveyor inbox approve <id> [--name <task>]")
+    iid = names[0]
+    task = _flag(args, "--name") or iid
+    if not handoff.TASK_RE.match(task):
+        util.die(f"conveyor inbox approve: invalid task name {task!r}")
+    try:
+        item = inbox.item(paths, iid)
+    except inbox.InboxError as e:
+        util.die(f"conveyor inbox: {e}")
+    text = (item["proposed_md"] or item["source_md"]).strip()
+    if not text:
+        util.die("conveyor inbox approve: no proposed-task.md or source.md to write")
+    rel = f"tasks/{task}.md"
+    dest = os.path.join(root, rel)
+    if os.path.exists(dest):
+        util.die(f"conveyor inbox approve: {rel} already exists")
+    os.makedirs(os.path.join(root, "tasks"), exist_ok=True)
+    util.atomic_write(dest, text + ("\n" if not text.endswith("\n") else ""))
+    util.git(["add", rel], root)
+    env = {k: v for k, v in os.environ.items() if k != "CONVEYOR_ROLE"}
+    subprocess.run(["git", "commit", "-q", "-m", f"Add task {task}", "--", rel], cwd=root,
+                   env=env, check=True)
+    inbox.update_meta(paths, iid, status="ready", task_name=task)
+    print(f"approved {iid} → {rel} (not enqueued; run conveyor start-task {task})")
+
+
+def cmd_start_task(args):
+    root, cfg, paths = setup()
+    paths.ensure(cfg)
+    if len(args) != 1 or not handoff.TASK_RE.match(args[0]):
+        util.die("usage: conveyor start-task <name>")
+    name = args[0]
+    rel = f"tasks/{name}.md"
+    if not os.path.isfile(os.path.join(root, rel)):
+        util.die(f"conveyor start-task: missing {rel}")
+    headers = enqueue_task(root, cfg, paths, name)
+    for it in inbox.list_items(paths):
+        if it.get("task_name") == name and it.get("status") == "ready":
+            inbox.update_meta(paths, it["id"], status="started")
+    print(f"{headers['id']} queued for {headers['to']}")
+
+
+def cmd_approve(args):
+    _, cfg, paths = setup()
+    if len(args) != 1:
+        util.die("usage: conveyor approve <id>")
+    try:
+        h = queue.approve_pending(paths, cfg, args[0])
+    except KeyError:
+        util.die(f"conveyor approve: no pending approval {args[0]}")
+    print(f"approved {h['id']} → {h['to']}")
+
+
+def cmd_reject(args):
+    _, cfg, paths = setup()
+    names = [a for a in args if not a.startswith("--")]
+    if len(names) != 1:
+        util.die("usage: conveyor reject <id> [--comments <file>]")
+    comments_arg = _flag(args, "--comments")
+    if comments_arg and os.path.isfile(comments_arg):
+        comments = util.read_text(comments_arg)
+    elif not sys.stdin.isatty():
+        comments = sys.stdin.read()
+    else:
+        comments = comments_arg or ""
+    if not comments.strip():
+        util.die("conveyor reject: comments required (stdin or --comments <file>)")
+    try:
+        h = queue.reject_pending(paths, cfg, names[0], comments)
+    except KeyError:
+        util.die(f"conveyor reject: no pending approval {names[0]}")
+    print(f"rejected {h['id']} → {h['to']}")
+
+
+WORKFLOW_USAGE = """usage: conveyor workflow list | show <slug>
+                | new <name> --roles a,b,c [--gate <role>] [--description <text>]
+                | edit <slug> [--name <text>] [--roles a,b,c] [--gate <role>|--no-gate]
+                         [--description <text>]
+                | delete <slug> | activate <slug>"""
+
+
+def _wf_roles(args):
+    """--roles a,b,c -> ["a","b","c"]; None when the flag is absent."""
+    raw = _flag(args, "--roles")
+    if raw is None:
+        return None
+    return [r.strip() for r in raw.split(",") if r.strip()]
+
+
+def _wf_status(paths, cfg, slug):
+    active, status = presets.resolve(paths, cfg)
+    if slug == active:
+        return status          # "active" or "modified"
+    return ""
+
+
+def _wf_line(p, marker):
+    gate = f"after {p['gate']}" if p["gate"] else "-"
+    return f"  {p['slug']:<20}{p['name']:<20}{' → '.join(p['roles']):<34}{gate:<16}{marker}"
+
+
+def cmd_workflow(args):
+    if not args:
+        util.die(WORKFLOW_USAGE)
+    verb, rest = args[0], args[1:]
+    root, cfg, paths = setup()
+    presets.ensure_seeded(paths)
+    names = _positionals(rest)
+
+    def one_slug():
+        if len(names) != 1:
+            util.die(WORKFLOW_USAGE)
+        return names[0]
+
+    try:
+        if verb == "list":
+            active, _ = presets.resolve(paths, cfg)
+            print(f"  {'SLUG':<20}{'NAME':<20}{'ROLES':<34}{'GATE':<16}STATUS")
+            for p in presets.load_all(paths):
+                print(_wf_line(p, _wf_status(paths, cfg, p["slug"])))
+            if active is None:
+                print(f"\n  conveyor.conf is a custom shape: {cfg.chain_label()}")
+            return
+
+        if verb == "show":
+            slug = one_slug()
+            p = presets.load(paths, slug)
+            marker = _wf_status(paths, cfg, slug)
+            print(f"{p['name']}  ({presets.rel_path(slug)})"
+                  + (f"  [{marker}]" if marker else ""))
+            if p["description"]:
+                print(f"  {p['description']}")
+            print(f"  roles: {' → '.join(p['roles'])}")
+            print(f"  gate:  {p['gate'] or 'none'}")
+            return
+
+        if verb == "new":
+            if len(names) != 1 or _wf_roles(rest) is None:
+                util.die(WORKFLOW_USAGE)
+            p = presets.create(root, paths, {
+                "name": names[0],
+                "description": _flag(rest, "--description", ""),
+                "roles": _wf_roles(rest),
+                "gate": _flag(rest, "--gate"),
+            })
+            return print(f"{presets.rel_path(p['slug'])} created")
+
+        if verb == "edit":
+            slug = one_slug()
+            patch = {}
+            if _flag(rest, "--name") is not None:
+                patch["name"] = _flag(rest, "--name")
+            if _flag(rest, "--description") is not None:
+                patch["description"] = _flag(rest, "--description")
+            if _wf_roles(rest) is not None:
+                patch["roles"] = _wf_roles(rest)
+            if "--no-gate" in rest:
+                patch["gate"] = None
+            elif _flag(rest, "--gate") is not None:
+                patch["gate"] = _flag(rest, "--gate")
+            if not patch:
+                util.die("conveyor workflow edit: nothing to change")
+            presets.save(root, paths, slug, patch)
+            return print(f"{presets.rel_path(slug)} saved")
+
+        if verb == "delete":
+            slug = one_slug()
+            presets.delete(paths, cfg, slug)
+            return print(f"{presets.rel_path(slug)} deleted")
+
+        if verb == "activate":
+            slug = one_slug()
+            r = presets.activate(root, paths, cfg, slug)
+            p = r["preset"]
+            print(f"conveyor.conf ← {slug} ({p['name']}): {' → '.join(p['roles'])}"
+                  + (f", gate after {p['gate']}" if p["gate"] else ", no gate"))
+            print(f".conveyor/active → {slug}. "
+                  f"Restart loops: conveyor stop && conveyor start")
+            for name in r["dropped"]:
+                leftovers = [x for x in (paths.worktree(name), paths.role(name).base)
+                             if os.path.exists(x)]
+                if leftovers:
+                    rels = ", ".join(os.path.relpath(x, root) for x in leftovers)
+                    print(f"warning: {name} left the workflow; {rels} remain on disk "
+                          f"(`conveyor start` prunes the worktree; the branch "
+                          f"conveyor-{name} is untouched)")
+            return
+    except presets.PresetError as e:
+        util.die(f"conveyor workflow {verb}: {e}")
+    except FileNotFoundError as e:
+        util.die(f"conveyor workflow {verb}: {e}")
+    except RuntimeError as e:
+        util.die(f"conveyor workflow {verb}: {e}")
+
+    util.die(WORKFLOW_USAGE)
+
+
 COMMANDS = {"init": cmd_init, "start": cmd_start, "stop": cmd_stop, "task": cmd_task,
-            "status": cmd_status, "log": cmd_log, "resume": cmd_resume}
+            "status": cmd_status, "log": cmd_log, "resume": cmd_resume,
+            "import": cmd_import, "intake": cmd_intake, "inbox": cmd_inbox,
+            "start-task": cmd_start_task, "approve": cmd_approve, "reject": cmd_reject,
+            "workflow": cmd_workflow}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
