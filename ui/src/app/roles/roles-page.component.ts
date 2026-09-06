@@ -1,23 +1,27 @@
 import { Component, OnInit, computed } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
+import { MatButtonModule } from '@angular/material/button';
+import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ConveyorApiService } from '../services/conveyor-api.service';
 import { UiStateService } from '../services/ui-state.service';
 import { AgentModel, RoleRecord, WorkflowState } from '../models';
 import { RoleCardsComponent } from './role-cards.component';
 import { EditorPaneComponent } from './editor-pane.component';
+import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
+import { NewRoleDialogComponent } from '../dialogs/new-role-dialog.component';
 
 @Component({
   selector: 'app-roles-page',
   standalone: true,
-  imports: [MatSnackBarModule, RoleCardsComponent, EditorPaneComponent],
+  imports: [MatSnackBarModule, MatButtonModule, RoleCardsComponent, EditorPaneComponent],
   template: `
     <div class="page">
       <div class="banner" [class.saved]="saved" role="status">
         @if (saved) {
           Saved. Applies the next time you Start.
         } @else {
-          Prompts, models and ceilings save to the repo. They apply the next time you Start.
+          Prompts, models, ceilings, and skills save to the repo. They apply the next time you Start.
         }
       </div>
 
@@ -39,6 +43,7 @@ import { EditorPaneComponent } from './editor-pane.component';
       @if (workflow) {
         <div class="head">
           <h3>Coding roles</h3>
+          <button mat-stroked-button (click)="newRole()" [disabled]="busy">New role</button>
           <span class="meta mono">
             roles/ · one file per job · on the belt now: {{ workflow.workflow.chain }}
           </span>
@@ -57,6 +62,7 @@ import { EditorPaneComponent } from './editor-pane.component';
               [busy]="busy"
               (select)="selectRole($event)"
               (saveRuntime)="saveRuntime($event)"
+              (deleteRole)="deleteRole($event)"
             ></app-role-cards>
           </div>
           <div class="right">
@@ -66,12 +72,20 @@ import { EditorPaneComponent } from './editor-pane.component';
               [roleDirty]="roleDirty"
               [projectText]="projectDraft"
               [projectDirty]="projectDirty"
+              [projectGates]="workflow.project_gates ?? []"
               [constitution]="workflow.constitution"
+              [availableSkills]="workflow.available_skills"
+              [assignedSkills]="assignedSkills"
+              [savedAssignedSkills]="savedAssignedSkills"
+              [skillsDirty]="skillsDirty"
               [busy]="busy"
               (roleTextChange)="roleDraft = $event; saved = false"
               (projectTextChange)="projectDraft = $event; saved = false"
+              (assignedSkillsChange)="assignedSkills = $event"
               (saveRole)="saveRole()"
               (saveProject)="saveProject()"
+              (runGate)="runGate($event)"
+              (saveSkills)="saveSkills($event)"
             ></app-editor-pane>
           </div>
         </section>
@@ -107,6 +121,8 @@ export class RolesPageComponent implements OnInit {
   selected: string | null = null;
   roleDraft = '';
   savedRoleText = '';
+  assignedSkills: string[] = [];
+  savedAssignedSkills: string[] = [];
   projectDraft = '';
   savedProjectText = '';
   busy = false;
@@ -120,11 +136,18 @@ export class RolesPageComponent implements OnInit {
 
   running = computed(() => this.ui.state()?.running ?? this.workflow?.running ?? false);
 
+  get skillsDirty(): boolean {
+    const a = [...this.assignedSkills].sort().join(',');
+    const b = [...this.savedAssignedSkills].sort().join(',');
+    return a !== b;
+  }
+
   constructor(
     private api: ConveyorApiService,
     public ui: UiStateService,
     private snack: MatSnackBar,
     private route: ActivatedRoute,
+    private dialog: MatDialog,
   ) {}
 
   get allRoles(): RoleRecord[] {
@@ -194,6 +217,82 @@ export class RolesPageComponent implements OnInit {
     const role = this.allRoles.find((r) => r.name === this.selected);
     this.savedRoleText = role?.text ?? '';
     this.roleDraft = this.savedRoleText;
+    this.savedAssignedSkills = [...(role?.skills ?? [])];
+    this.assignedSkills = [...this.savedAssignedSkills];
+  }
+
+  newRole(): void {
+    this.dialog
+      .open(NewRoleDialogComponent, {
+        data: { existing: this.allRoles.map((r) => r.name) },
+        width: '420px',
+      })
+      .afterClosed()
+      .subscribe((v) => {
+        if (!v) return;
+        this.busy = true;
+        this.api.createRole(v.name, v.from).subscribe({
+          next: () => {
+            this.busy = false;
+            this.snack.open(`roles/${v.name}.md created`, undefined, { duration: 3000 });
+            this.requested = v.name;
+            this.load(true);
+          },
+          error: (e) => {
+            this.busy = false;
+            this.error = e?.error?.error ?? e.message ?? 'Create failed';
+          },
+        });
+      });
+  }
+
+  deleteRole(role: RoleRecord): void {
+    this.dialog
+      .open(ConfirmDialogComponent, {
+        data: {
+          title: `Delete ${role.name}?`,
+          body: `Remove roles/${role.name}.md from the library. Queues and worktrees are untouched.`,
+          confirmLabel: 'Delete',
+          warn: true,
+        },
+      })
+      .afterClosed()
+      .subscribe((ok) => {
+        if (!ok) return;
+        this.busy = true;
+        this.api.deleteRole(role.name).subscribe({
+          next: () => {
+            this.busy = false;
+            this.snack.open(`roles/${role.name}.md deleted`, undefined, { duration: 2500 });
+            if (this.selected === role.name) this.selected = null;
+            this.load();
+          },
+          error: (e) => {
+            this.busy = false;
+            this.snack.open(e?.error?.error ?? e.message ?? 'Delete failed', undefined,
+                            { duration: 5000 });
+          },
+        });
+      });
+  }
+
+  saveSkills(skills: string[]): void {
+    if (!this.selected) return;
+    this.busy = true;
+    this.api.saveRoleSkills(this.selected, skills).subscribe({
+      next: () => {
+        this.busy = false;
+        this.savedAssignedSkills = [...skills];
+        this.saved = true;
+        this.snack.open(`roles/${this.selected}.skills saved — applies on next Start`, undefined,
+                        { duration: 3000 });
+        this.load(true);
+      },
+      error: (e) => {
+        this.busy = false;
+        this.error = e?.error?.error ?? e.message ?? 'Skills save failed';
+      },
+    });
   }
 
   saveRuntime(role: RoleRecord): void {
@@ -252,6 +351,20 @@ export class RolesPageComponent implements OnInit {
       error: (e) => {
         this.busy = false;
         this.error = e?.error?.error ?? e.message ?? 'project.md save failed';
+      },
+    });
+  }
+
+  runGate(name: string): void {
+    this.busy = true;
+    this.api.runGate(name, this.selected ?? undefined).subscribe({
+      next: (r) => {
+        this.busy = false;
+        this.snack.open(r.message || `${name}: ok`, undefined, { duration: 4000 });
+      },
+      error: (e) => {
+        this.busy = false;
+        this.error = e?.error?.error ?? e.message ?? 'Gate run failed';
       },
     });
   }

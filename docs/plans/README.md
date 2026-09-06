@@ -25,6 +25,13 @@ plans 3–6 are deliberately not written up front.
 | 5 · Board fidelity | `held` badge, held group in Queues, chime, disconnected polish | 1 | not planned |
 | 6 · Theme pass | Azure Blue + Roboto across all views, semantic roles preserved | 1–5 | not planned |
 
+## After `v0.3.0-rc1`
+
+| Doc | Use |
+| --- | --- |
+| [0.4.0-rc1](0.4.0-rc1.md) | Intended next tag. Edit Features / Fixes / Maintenance / Out. |
+| [Next chapters](next-chapters.md) | Versioning and work buckets. Next advertised tag is `v0.4.0-rc1`; `v1.0.0` waits on M3. |
+
 ## Scans
 
 | Doc | Use |

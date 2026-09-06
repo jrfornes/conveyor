@@ -42,7 +42,7 @@ re-init of a pre-Stage-4 repo. It never commits — review and commit yourself. 
 ## Layout
 
 ```
-bin/conveyor          operator CLI: init | start | stop | task | status | log | resume
+bin/conveyor          operator CLI: init | uninstall | start | stop | task | status | log | resume
                       | import | intake [config|jira|<id>] | inbox approve/skip | start-task
                       | approve | reject | workflow …
 bin/conveyor-ui       optional localhost cockpit (`--demo` throwaway fixture)
@@ -257,13 +257,25 @@ Where the protocol left a choice, the refusing option was taken.
 34. **The intake HTTP API is POST-only**, same as roles/project/runtime, against
     the design spec's GET/PUT. `POST /api/intake/config` is 200 while loops
     run (not 409). Existing `POST /api/intake` (run the one-shot) is unchanged.
-35. **Empty `## Test command` fence is skipped.** `handoff.sh` reads
-    `project.md` from the worktree (not main); a missing file is empty. Under
-    `## Test command` it takes the first fenced block, strips HTML comments,
-    and uses the first remaining non-empty line. Extra lines are ignored.
-    Empty after that → skip (this repo's comment-only template). `findings`
-    and `ticket-reviewer` skip. `ready`/`pass` run the command with no
-    timeout; nonzero is `E_GATE_FAILED`.
+35. **Project gates live in `project.md`.** Either legacy `## Test command`
+    only (implicit gate `test` on every belt `ready`/`pass`) or `## Gates` +
+    `## Required on` — never both; missing Required-on with Gates is
+    `E_GATE_PARSE`. `handoff.sh` reads the worktree copy; `conveyor start`
+    validates the main checkout. Empty command skips that gate. Substitutions:
+    `{inbound}`, `{head}` only. Log:
+    `.conveyor/logs/gates/<role>-<task>-<commit>-<name>.txt`.
+    `conveyor gate list|run` uses the same argv table.
+36. **Skill assignment is not exclusive isolation.** `roles/<name>.skills`
+    guarantees assigned skills are copied into the worktree and listed in
+    `conveyor-role.mdc`; it does not hide other skill trees already tracked
+    in git and merged into the worktree under `.agents/skills/` or
+    `.cursor/skills/`. When the same name exists in both repo-root catalogs,
+    `.agents/skills` wins for discovery, validation, and injection.
+37. **`conveyor uninstall` is runtime-only by default.** `--yes` is required;
+    without it the command prints what would be removed and exits nonzero.
+    Default removes worktrees, local `conveyor-*` branches, `.conveyor/`, and
+    the byline hook only when its contents match the shipped copy. `--bundle`
+    also deletes init files. Refused when run from the conveyor source checkout.
 
 ## Not built (PRD Appendix B)
 

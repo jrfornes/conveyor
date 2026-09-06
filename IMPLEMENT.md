@@ -1,6 +1,6 @@
 # Implementation brief
 
-**Status:** M0–M2 and M4 are implemented under `bin/` and `lib/conveyor/`; M3 awaits the first live Cursor run. Ship `v0.3.0-rc1` without M3; run M3 against the tagged build before `v1.0.0`.
+**Status:** M0–M2 and M4 are implemented under `bin/` and `lib/conveyor/`; M3 awaits the first live Cursor run. `v0.4.0-rc1` is tagged (gates catalog, role skills, uninstall; live-run unverified). Run M3 against a tag before `v1.0.0`.
 
 You are implementing Conveyor from this bundle. Read in this order:
 

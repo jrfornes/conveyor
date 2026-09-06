@@ -27,7 +27,10 @@ REPAIR = {
     "E_NO_CHANGE": "You have not committed anything. Commit your work (or, as reviewer, an empty commit carrying findings) and retry.",
     "E_AMBIGUOUS_SHA": "Report this to the operator; it requires a longer abbreviation.",
     "E_LOCK": "Retry once. If it fails again, report it.",
-    "E_GATE_FAILED": "Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}.txt",
+    "E_GATE_PARSE": "Fix ## Gates / ## Required on (or use only ## Test command). See docs/conveyor-handoff-protocol.md.",
+    "E_GATE_UNKNOWN": "Add `{name}` under ## Gates in project.md, or remove it from ## Required on.",
+    "E_GATE_SUBST": "Use only `{{inbound}}` and `{{head}}` in gate commands.",
+    "E_GATE_FAILED": "Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}-{name}.txt",
 }
 PROBLEM = {
     "E_ENV": "CONVEYOR_ROLE or CONVEYOR_WORKTREE not set",
@@ -50,7 +53,10 @@ PROBLEM = {
     "E_NO_CHANGE": "HEAD equals the inbound commit",
     "E_AMBIGUOUS_SHA": "10-char abbreviation is ambiguous",
     "E_LOCK": "could not acquire a lock within 30 s",
-    "E_GATE_FAILED": "project test command failed (exit {n})",
+    "E_GATE_PARSE": "project.md gate catalog is invalid",
+    "E_GATE_UNKNOWN": "required gate `{name}` has no command",
+    "E_GATE_SUBST": "gate command uses unknown placeholder {token}",
+    "E_GATE_FAILED": "gate {name} failed (exit {n})",
 }
 GOOD = "to: reviewer\ntask: demo\nverdict: ready\n"
 
@@ -210,7 +216,57 @@ class Errors(ConveyorTest):
         commit = self.fx.git("rev-parse", "--short=10", "HEAD", cwd=self.wt)
         self.draft()
         self.expect("E_GATE_FAILED", self.fx.handoff("coder"),
-                    n=1, role="coder", task="demo", commit=commit)
+                    n=1, role="coder", task="demo", commit=commit, name="test")
+
+    def test_E_GATE_PARSE(self):
+        with open(os.path.join(self.wt, "project.md"), "w") as f:
+            f.write("# Project\n\n## Test command\n\n```\nexit 0\n```\n\n## Gates\n\ntest:\n```\nexit 0\n```\n")
+        self.fx.git("add", "project.md", cwd=self.wt)
+        self.fx.git("commit", "-q", "--no-verify", "-m", "Bad project\n\nBy coder.", cwd=self.wt)
+        self.draft()
+        self.expect("E_GATE_PARSE", self.fx.handoff("coder"))
+
+    def test_E_GATE_UNKNOWN(self):
+        text = """# Project
+
+## Gates
+
+test:
+```
+exit 0
+```
+
+## Required on
+
+coder ready: test, missing
+"""
+        with open(os.path.join(self.wt, "project.md"), "w") as f:
+            f.write(text)
+        self.fx.git("add", "project.md", cwd=self.wt)
+        self.fx.git("commit", "-q", "--no-verify", "-m", "Unknown gate\n\nBy coder.", cwd=self.wt)
+        self.draft()
+        self.expect("E_GATE_UNKNOWN", self.fx.handoff("coder"), name="missing")
+
+    def test_E_GATE_SUBST(self):
+        text = """# Project
+
+## Gates
+
+test:
+```
+echo {foo}
+```
+
+## Required on
+
+coder ready: test
+"""
+        with open(os.path.join(self.wt, "project.md"), "w") as f:
+            f.write(text)
+        self.fx.git("add", "project.md", cwd=self.wt)
+        self.fx.git("commit", "-q", "--no-verify", "-m", "Bad subst\n\nBy coder.", cwd=self.wt)
+        self.draft()
+        self.expect("E_GATE_SUBST", self.fx.handoff("coder"), token="{foo}")
 
     def test_success_then_ok_exit_codes(self):
         self.draft()

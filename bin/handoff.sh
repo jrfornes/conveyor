@@ -5,7 +5,6 @@ Usage: handoff.sh <draft-path>
 Exit 0: queued. Exit 2: AUDIT_REQUIRED. Exit 1: any E_* error."""
 import hashlib
 import os
-import re
 import subprocess
 import sys
 
@@ -15,7 +14,7 @@ if sys.version_info < (3, 10):
     sys.exit(1)
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
-from conveyor import board, config, handoff, layout, queue, util  # noqa: E402
+from conveyor import board, config, gates, handoff, layout, queue, util  # noqa: E402
 
 ERRORS = {
     "E_ENV": ("CONVEYOR_ROLE or CONVEYOR_WORKTREE not set",
@@ -54,8 +53,14 @@ ERRORS = {
     "E_AMBIGUOUS_SHA": ("10-char abbreviation is ambiguous",
                         "Report this to the operator; it requires a longer abbreviation."),
     "E_LOCK": ("could not acquire a lock within 30 s", "Retry once. If it fails again, report it."),
-    "E_GATE_FAILED": ("project test command failed (exit {n})",
-                      "Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}.txt"),
+    "E_GATE_PARSE": ("project.md gate catalog is invalid",
+                     "Fix ## Gates / ## Required on (or use only ## Test command). See docs/conveyor-handoff-protocol.md."),
+    "E_GATE_UNKNOWN": ("required gate `{name}` has no command",
+                       "Add `{name}` under ## Gates in project.md, or remove it from ## Required on."),
+    "E_GATE_SUBST": ("gate command uses unknown placeholder {token}",
+                     "Use only `{{inbound}}` and `{{head}}` in gate commands."),
+    "E_GATE_FAILED": ("gate {name} failed (exit {n})",
+                      "Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}-{name}.txt"),
 }
 
 AUDIT_TEXT = """AUDIT_REQUIRED: handoff for {task} not queued (audit {n})
@@ -149,58 +154,37 @@ def main():
     if len(commit) != 10 or resolved != head:
         fail("E_AMBIGUOUS_SHA")
     body = message.rstrip("\n") + "\n"
-    # later: hop table / {inbound} / Run now
-    run_test_command(paths, wt, role, task, verdict, commit, intake)
+    run_project_gates(paths, wt, cfg, role, task, verdict, commit, inbound["commit"], intake)
     try:
         gate(paths, rp, role, task, to, verdict, commit, body, intake=intake)
     except util.LockTimeout:
         fail("E_LOCK")
 
 
-def test_command(wt):
-    path = os.path.join(wt, "project.md")
-    if not os.path.isfile(path):
-        return ""
-    collecting, section = False, []
-    for line in util.read_text(path).splitlines():
-        if not collecting:
-            if line.startswith("## Test command"):
-                collecting = True
-            continue
-        if line.startswith("## "):
-            break
-        section.append(line)
-    body = "\n".join(section)
-    start = body.find("```")
-    if start < 0:
-        return ""
-    nl = body.find("\n", start)
-    if nl < 0:
-        return ""
-    end = body.find("```", nl + 1)
-    if end < 0:
-        return ""
-    fence = re.sub(r"<!--.*?-->", "", body[nl + 1:end], flags=re.DOTALL)
-    for line in fence.splitlines():
-        s = line.strip()
-        if s:
-            return s
-    return ""
-
-
-def run_test_command(paths, wt, role, task, verdict, commit, intake):
+def run_project_gates(paths, wt, cfg, role, task, verdict, commit, inbound_commit, intake):
     if intake or verdict == "findings":
         return
-    cmd = test_command(wt)
-    if not cmd:
-        return
-    r = subprocess.run(cmd, shell=True, cwd=wt, capture_output=True, text=True)
-    if r.returncode == 0:
-        return
-    os.makedirs(paths.gates, exist_ok=True)
-    util.atomic_write(os.path.join(paths.gates, f"{role}-{task}-{commit}.txt"),
-                      f"exit: {r.returncode}\nargv: {cmd}\n--- stdout ---\n{r.stdout}--- stderr ---\n{r.stderr}")
-    fail("E_GATE_FAILED", n=r.returncode, role=role, task=task, commit=commit)
+    path = os.path.join(wt, "project.md")
+    text = util.read_text(path) if os.path.isfile(path) else ""
+    try:
+        catalog = gates.parse(text)
+    except gates.GateParseError:
+        fail("E_GATE_PARSE")
+    head = util.git(["rev-parse", "--short=10", "HEAD"], wt)
+    for name in gates.required(catalog, role, verdict, cfg.names()):
+        if name not in catalog.commands:
+            fail("E_GATE_UNKNOWN", name=name)
+        argv = catalog.commands[name]
+        if not argv.strip():
+            continue
+        try:
+            expanded = gates.expand(argv, inbound_commit, head)
+        except gates.GateSubstError as e:
+            fail("E_GATE_SUBST", token=e.token)
+        try:
+            gates.run(paths, wt, role, task, commit, name, expanded)
+        except gates.GateFailedError as e:
+            fail("E_GATE_FAILED", n=e.exit_code, role=role, task=task, commit=commit, name=name)
 
 
 def gate(paths, rp, role, task, to, verdict, commit, body, intake=False):

@@ -169,6 +169,15 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/roles":
                 state.write_role(self.repo_root, body["name"], body["text"])
                 return self._json(200, {"ok": True})
+            if path == "/api/roles/create":
+                state.create_role(self.repo_root, body["name"], body.get("from"))
+                return self._json(200, {"ok": True, "message": f"roles/{body['name']}.md created"})
+            if path == "/api/roles/delete":
+                state.delete_role(self.repo_root, body["name"])
+                return self._json(200, {"ok": True, "message": f"roles/{body['name']}.md deleted"})
+            if path == "/api/roles/skills":
+                state.write_role_skills(self.repo_root, body["name"], body.get("skills", []))
+                return self._json(200, {"ok": True, "message": f"roles/{body['name']}.skills saved"})
             if path == "/api/roles/runtime":
                 state.update_role_runtime(
                     self.repo_root,
@@ -182,6 +191,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/project":
                 state.write_project(self.repo_root, body["text"])
                 return self._json(200, {"ok": True})
+            if path == "/api/gates/run":
+                msg = state.run_project_gate(
+                    self.repo_root, body["name"], body.get("role"))
+                return self._json(200, {"ok": True, "message": msg})
             if path == "/api/intake/prompt":
                 state.write_intake_prompt(self.repo_root, body["text"])
                 return self._json(200, {"ok": True, "path": "intake/ticket-reviewer.md"})

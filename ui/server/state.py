@@ -9,8 +9,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(REPO, "lib"))
 
 from conveyor import (  # noqa: E402
-    agent, board, config, handoff, intake as intakelib, jira as jiralib,
-    layout, presets, queue, util, workflows,
+    agent, board, config, gates, handoff, intake as intakelib, jira as jiralib,
+    layout, presets, queue, roles, util, workflows,
 )
 
 
@@ -268,7 +268,7 @@ def git_commit_stat(root, sha):
     return r.stdout
 
 
-REQUIRED_ROLE_HEADINGS = ("Owns", "Does not own", "Handoff contract")
+REQUIRED_ROLE_HEADINGS = roles.REQUIRED_ROLE_HEADINGS
 RUNNING_MSG = "loops are running; stop them first"
 
 
@@ -302,6 +302,7 @@ def _role_record(root, cfg, name, in_workflow):
         "in_workflow": in_workflow,
         "text": _read_optional(os.path.join(root, "roles", f"{name}.md")),
         "hops": _hops(cfg, name),
+        "skills": roles.assigned_skills(root, name),
     }
     if in_workflow:
         r = cfg.role(name)
@@ -340,8 +341,10 @@ def build_workflow(root):
         ],
         "roles": [_role_record(root, cfg, n, True) for n in cfg.names()],
         "library": [_role_record(root, cfg, n, False) for n in workflows.library_roles(root, cfg)],
+        "available_skills": roles.available_skills(root),
         "constitution": constitution_files(root),
         "project": _read_optional(os.path.join(root, "project.md")),
+        "project_gates": project_gates(root),
         "marks": {
             "operator": workflows.avatar("operator"),
             "done": workflows.avatar("done"),
@@ -357,15 +360,55 @@ def write_role(root, name, text):
     path = os.path.join(root, "roles", f"{name}.md")
     if not os.path.isfile(path):
         raise FileNotFoundError(name)
-    for heading in REQUIRED_ROLE_HEADINGS:
-        if not re.search(rf"^#+\s+{re.escape(heading)}\s*$", text, re.M):
-            raise ValueError(f"role file must include heading {heading!r}")
+    try:
+        roles.validate_role_text(text)
+    except roles.RoleError as e:
+        raise ValueError(str(e)) from e
     util.atomic_write(path, text if text.endswith("\n") else text + "\n")
+
+
+def create_role(root, name, from_name=None):
+    try:
+        roles.create(root, name, from_name=from_name)
+    except roles.RoleError as e:
+        raise ValueError(str(e)) from e
+
+
+def delete_role(root, name):
+    cfg = config.load(root)
+    paths = layout.Paths(root)
+    try:
+        roles.delete(root, paths, cfg, name)
+    except roles.RoleError as e:
+        raise ValueError(str(e)) from e
+
+
+def write_role_skills(root, name, skills):
+    try:
+        roles.write_skills(root, name, skills)
+    except roles.RoleError as e:
+        raise ValueError(str(e)) from e
 
 
 def write_project(root, text):
     path = os.path.join(root, "project.md")
     util.atomic_write(path, text if text.endswith("\n") else text + "\n")
+
+
+def project_gates(root):
+    try:
+        catalog = gates.read_catalog(root)
+    except gates.GateParseError:
+        return []
+    return [{"name": n, "argv": catalog.commands[n] or ""} for n in sorted(catalog.commands)]
+
+
+def run_project_gate(root, name, role=None):
+    from . import cli
+    args = ["gate", "run", name]
+    if role:
+        args += ["--role", role]
+    return cli.run(root, *args)
 
 
 def _cfg(root):

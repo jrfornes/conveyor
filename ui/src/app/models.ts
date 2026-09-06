@@ -173,12 +173,19 @@ export interface WorkflowEdit {
   gate: string | null;
 }
 
+export interface SkillInfo {
+  name: string;
+  description: string;
+  source?: string;
+}
+
 export interface RoleRecord {
   name: string;
   avatar: RoleAvatar;
   in_workflow: boolean;
   text: string;
   hops: Hop[];
+  skills?: string[];
   model?: string;
   max_retries?: number;
   max_minutes?: number;
@@ -204,6 +211,11 @@ export interface IntakeState {
   jira: IntakeJira;
 }
 
+export interface ProjectGate {
+  name: string;
+  argv: string;
+}
+
 export interface WorkflowState {
   workflow: WorkflowRef;
   /** Role whose outbound `ready` is held for the operator, or null. */
@@ -212,8 +224,10 @@ export interface WorkflowState {
   routes: Hop[];
   roles: RoleRecord[];
   library: RoleRecord[];
+  available_skills: SkillInfo[];
   constitution: string[];
   project: string;
+  project_gates: ProjectGate[];
   marks: {
     operator: RoleAvatar;
     done: RoleAvatar;

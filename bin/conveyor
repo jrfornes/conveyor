@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Conveyor operator CLI (protocol §10, runbook §4–7).
 
-conveyor init [<path>] | start | stop [--now] | task <name> [--delete]
+conveyor init [<path>] | uninstall [--yes] [--bundle]
+           | start | stop [--now] | task <name> [--delete]
            | status | log <role> [<task>] | resume <task> [--to <role>]
            | import --source manual|jira [--title ...]
            | intake <id> [--improve] | intake config | intake jira
            | inbox approve <id> [--name <task>] | inbox skip <id>
            | start-task <name> | approve <id> | reject <id>
+           | role list | show <name> | new <name> [--from <other>] | delete <name>
+                    | skills <name> [--set a,b,c]
            | workflow list | show <slug> | new <name> --roles a,b,c [--gate <role>]
                     | edit <slug> [...] | delete <slug> | activate <slug>
+           | gate list | run <name> [--role <role>]
 """
 import json
 import os
@@ -25,8 +29,9 @@ if sys.version_info < (3, 10):
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
-from conveyor import (adapters, agent as agentlib, board, config, handoff, inbox,  # noqa: E402
-                      intake as intakelib, jira as jiralib, layout, presets, queue, util)
+from conveyor import (adapters, agent as agentlib, board, config, gates, handoff, inbox,  # noqa: E402
+                      intake as intakelib, jira as jiralib, layout, presets, queue,
+                      roles as roleslib, util)
 
 RULE_FILES = ["constitution.md", "constitution/engineering.md", "constitution/workflow.md",
               "constitution/handoffs.md", "project.md"]
@@ -79,9 +84,13 @@ def ensure_worktree(root, paths, role_name):
         role_md = intakelib.prompt_path(root)
     else:
         role_md = os.path.join(root, "roles", f"{role_name}.md")
+    try:
+        skills_block = roleslib.inject_skills(root, wt, role_name)
+    except roleslib.RoleError as e:
+        util.die(f"conveyor start: {e}")
     util.atomic_write(os.path.join(wt, ".cursor", "rules", "conveyor-role.mdc"),
                       f"---\ndescription: Conveyor rules for role {role_name}\nalwaysApply: true\n---\n\n"
-                      + rules + util.read_text(role_md))
+                      + rules + util.read_text(role_md) + skills_block)
     return wt
 
 
@@ -152,6 +161,257 @@ def cmd_init(args):
     print("Next: edit project.md and conveyor.conf, review `git status`, commit, then `conveyor start`.")
 
 
+UNINSTALL_USAGE = "usage: conveyor uninstall [--yes] [--bundle]"
+
+
+def uninstall_root():
+    """Consumer project root; works when conveyor.conf is already gone."""
+    d = os.getcwd()
+    while True:
+        if os.path.isdir(os.path.join(d, ".git")):
+            if (os.path.isfile(os.path.join(d, "conveyor.conf"))
+                    or os.path.isdir(os.path.join(d, ".conveyor"))
+                    or os.path.isdir(os.path.join(d, ".worktrees"))):
+                return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            util.die("conveyor uninstall: no conveyor project at or above the current directory")
+        d = parent
+
+
+def _conveyor_branches(root):
+    r = subprocess.run(["git", "branch", "--list", "conveyor-*"], cwd=root,
+                       capture_output=True, text=True)
+    out = []
+    for line in r.stdout.splitlines():
+        branch = line.strip().lstrip("* ").strip()
+        if branch.startswith("conveyor-"):
+            out.append(branch)
+    return sorted(out)
+
+
+def _uninstall_role_names(paths, cfg=None):
+    names = set(cfg.names()) if cfg else set()
+    roles_dir = os.path.join(paths.conveyor, "roles")
+    if os.path.isdir(roles_dir):
+        names.update(os.listdir(roles_dir))
+    return sorted(names)
+
+
+def _stop_all_loops(root, paths, cfg=None):
+    roles = _uninstall_role_names(paths, cfg)
+    for role in roles:
+        rp = paths.role(role)
+        if os.path.isdir(rp.base):
+            open(rp.stop, "w").close()
+        pid = layout.loop_pid(paths, role)
+        if pid:
+            os.kill(pid, signal.SIGTERM)
+    deadline = time.time() + 30
+    while time.time() < deadline and any(layout.loop_pid(paths, r) for r in roles):
+        time.sleep(0.2)
+    for role in roles:
+        rp = paths.role(role)
+        if os.path.exists(rp.stop):
+            os.remove(rp.stop)
+
+
+def _remove_all_worktrees(root, paths):
+    live = _git_worktrees(root)
+    if not os.path.isdir(paths.worktrees):
+        return []
+    removed = []
+    for name in sorted(os.listdir(paths.worktrees)):
+        wt = paths.worktree(name)
+        wt_real = os.path.realpath(wt)
+        if wt_real in live or os.path.isdir(wt):
+            if util.git_ok(["worktree", "remove", "--force", wt], root):
+                removed.append(os.path.relpath(wt, root))
+            elif os.path.isdir(wt):
+                shutil.rmtree(wt)
+                removed.append(os.path.relpath(wt, root))
+    if os.path.isdir(paths.worktrees):
+        shutil.rmtree(paths.worktrees)
+        removed.append(".worktrees")
+    return removed
+
+
+def _remove_conveyor_hook(root):
+    hooks = os.path.join(util.git(["rev-parse", "--path-format=absolute", "--git-common-dir"], root),
+                         "hooks")
+    hook_path = os.path.join(hooks, "commit-msg")
+    if not os.path.isfile(hook_path):
+        return None
+    canonical = util.read_text(os.path.join(BIN, "hooks", "commit-msg"))
+    if util.read_text(hook_path) == canonical:
+        return ".git/hooks/commit-msg"
+    return "warning: .git/hooks/commit-msg differs from Conveyor's; left in place"
+
+
+def _bundle_removals(root):
+    out = []
+    for rel in SHIPPED:
+        if os.path.isfile(os.path.join(root, rel)):
+            out.append(rel)
+    roles_dir = os.path.join(root, "roles")
+    if os.path.isdir(roles_dir):
+        extra = [f for f in os.listdir(roles_dir) if not f.endswith((".md", ".skills"))]
+        for f in sorted(os.listdir(roles_dir)):
+            if f.endswith((".md", ".skills")):
+                out.append(f"roles/{f}")
+        if not extra:
+            out.append("roles/")
+    for rel in TEMPLATED:
+        if os.path.isfile(os.path.join(root, rel)):
+            out.append(rel)
+    intake_dir = os.path.join(root, "intake")
+    if os.path.isdir(intake_dir):
+        templated = {os.path.basename(r) for r in TEMPLATED if r.startswith("intake/")}
+        if set(os.listdir(intake_dir)).issubset(templated):
+            out.append("intake/")
+    const_dir = os.path.join(root, "constitution")
+    if os.path.isdir(const_dir):
+        shipped_const = {os.path.basename(r) for r in SHIPPED if r.startswith("constitution/")}
+        if set(os.listdir(const_dir)).issubset(shipped_const):
+            out.append("constitution/")
+    if os.path.isdir(os.path.join(root, "tasks")):
+        out.append("tasks/")
+    if os.path.isfile(os.path.join(root, "conveyor.conf")):
+        out.append("conveyor.conf")
+    gi = os.path.join(root, ".gitignore")
+    if os.path.isfile(gi) and any(e in util.read_text(gi).splitlines() for e in GITIGNORE):
+        out.append(".gitignore (Conveyor entries)")
+    return out
+
+
+def _remove_bundle(root):
+    removed = []
+    for rel in SHIPPED:
+        path = os.path.join(root, rel)
+        if os.path.isfile(path):
+            os.remove(path)
+            removed.append(rel)
+    roles_dir = os.path.join(root, "roles")
+    if os.path.isdir(roles_dir):
+        for f in sorted(os.listdir(roles_dir)):
+            if f.endswith((".md", ".skills")):
+                os.remove(os.path.join(roles_dir, f))
+                removed.append(f"roles/{f}")
+        try:
+            os.rmdir(roles_dir)
+            removed.append("roles/")
+        except OSError:
+            pass
+    for rel in TEMPLATED:
+        path = os.path.join(root, rel)
+        if os.path.isfile(path):
+            os.remove(path)
+            removed.append(rel)
+    intake_dir = os.path.join(root, "intake")
+    if os.path.isdir(intake_dir):
+        try:
+            os.rmdir(intake_dir)
+            removed.append("intake/")
+        except OSError:
+            pass
+    const_dir = os.path.join(root, "constitution")
+    if os.path.isdir(const_dir):
+        try:
+            os.rmdir(const_dir)
+            removed.append("constitution/")
+        except OSError:
+            pass
+    tasks_dir = os.path.join(root, "tasks")
+    if os.path.isdir(tasks_dir):
+        shutil.rmtree(tasks_dir)
+        removed.append("tasks/")
+    conf = os.path.join(root, "conveyor.conf")
+    if os.path.isfile(conf):
+        os.remove(conf)
+        removed.append("conveyor.conf")
+    gi = os.path.join(root, ".gitignore")
+    if os.path.isfile(gi):
+        lines = util.read_text(gi).splitlines()
+        kept = [l for l in lines if l not in GITIGNORE]
+        if kept != lines:
+            util.atomic_write(gi, ("\n".join(kept) + "\n") if kept else "")
+            removed.append(".gitignore (Conveyor entries)")
+    return removed
+
+
+def _uninstall_plan(root, paths, bundle, cfg=None):
+    plan = []
+    if any(layout.loop_pid(paths, r) for r in _uninstall_role_names(paths, cfg)):
+        plan.append("stop running loops (--now)")
+    if os.path.isdir(paths.worktrees):
+        for name in sorted(os.listdir(paths.worktrees)):
+            plan.append(os.path.relpath(paths.worktree(name), root))
+        plan.append(".worktrees")
+    for branch in _conveyor_branches(root):
+        plan.append(f"branch {branch}")
+    if os.path.isdir(paths.conveyor):
+        plan.append(".conveyor")
+    hook = _remove_conveyor_hook(root)
+    if hook:
+        plan.append(hook)
+    if bundle:
+        plan.extend(_bundle_removals(root))
+    return plan
+
+
+def cmd_uninstall(args):
+    if args and args[0] in ("-h", "--help"):
+        util.die(UNINSTALL_USAGE)
+    bundle = "--bundle" in args
+    yes = "--yes" in args
+    extra = [a for a in args if a not in ("--yes", "--bundle")]
+    if extra:
+        util.die(UNINSTALL_USAGE)
+    repo_real = os.path.realpath(REPO)
+    if os.path.realpath(os.getcwd()) == repo_real:
+        util.die("conveyor uninstall: refusing to run in the conveyor source checkout")
+    root = uninstall_root()
+    if os.path.realpath(root) == repo_real:
+        util.die("conveyor uninstall: refusing to run in the conveyor source checkout")
+    paths = layout.Paths(root)
+    cfg = None
+    if os.path.isfile(os.path.join(root, "conveyor.conf")):
+        try:
+            cfg = config.load(root)
+        except config.ConfigError:
+            pass
+    plan = _uninstall_plan(root, paths, bundle, cfg)
+    if not yes:
+        print("conveyor uninstall: dry run; pass --yes to proceed")
+        if not plan:
+            print("  (nothing to remove)")
+        for line in plan:
+            print(f"  would remove {line}")
+        util.die("")
+    if any(layout.loop_pid(paths, r) for r in _uninstall_role_names(paths, cfg)):
+        _stop_all_loops(root, paths, cfg)
+    for rel in _remove_all_worktrees(root, paths):
+        print(f"removed {rel}")
+    for branch in _conveyor_branches(root):
+        if util.git_ok(["branch", "-D", branch], root):
+            print(f"deleted branch {branch}")
+    if os.path.isdir(paths.conveyor):
+        shutil.rmtree(paths.conveyor)
+        print("removed .conveyor")
+    hook = _remove_conveyor_hook(root)
+    if hook and not hook.startswith("warning"):
+        hooks = os.path.join(util.git(["rev-parse", "--path-format=absolute", "--git-common-dir"], root),
+                             "hooks")
+        os.remove(os.path.join(hooks, "commit-msg"))
+        print(f"removed {hook}")
+    elif hook:
+        print(hook)
+    if bundle:
+        for rel in _remove_bundle(root):
+            print(f"removed {rel}")
+    print("uninstalled")
+
+
 # --- start / stop -----------------------------------------------------------
 def _git_worktrees(root):
     """{realpath: branch-ref} from `git worktree list --porcelain` stanzas."""
@@ -207,12 +467,23 @@ def prune_stale_worktrees(root, cfg, paths):
                   f"with: git worktree remove --force .worktrees/{name}")
 
 
+def validate_project_gates(root, cfg):
+    try:
+        catalog = gates.read_catalog(root)
+    except gates.GateParseError as e:
+        util.die(f"conveyor start: project.md: {e}")
+    for role, verdict, name in gates.validate_for_belt(catalog, cfg.names()):
+        util.die(f"conveyor start: project.md lists unknown gate {name!r} "
+                 f"for {role} {verdict}")
+
+
 def cmd_start(args):
     root, cfg, paths = setup()
     agent = os.environ.get("CONVEYOR_AGENT_BIN", cfg.agent_bin)
     for r in cfg.roles:
         if not os.path.isfile(os.path.join(root, "roles", f"{r.name}.md")):
             util.die(f"conveyor start: roles/{r.name}.md is missing")
+    validate_project_gates(root, cfg)
     try:
         listed = agentlib.list_models(agent)
     except agentlib.AgentError as e:
@@ -408,7 +679,7 @@ def _flag(args, name, default=None):
 def _positionals(args):
     skip = set()
     for flag in ("--name", "--title", "--source", "--comments",
-                 "--roles", "--gate", "--description"):
+                 "--roles", "--gate", "--description", "--set", "--from"):
         if flag in args:
             i = args.index(flag)
             skip.add(i)
@@ -812,11 +1083,149 @@ def cmd_workflow(args):
     util.die(WORKFLOW_USAGE)
 
 
-COMMANDS = {"init": cmd_init, "start": cmd_start, "stop": cmd_stop, "task": cmd_task,
-            "status": cmd_status, "log": cmd_log, "resume": cmd_resume,
+ROLE_USAGE = """usage: conveyor role list | show <name>
+                | new <name> [--from <other>] | delete <name>
+                | skills <name> [--set a,b,c]"""
+
+
+def cmd_role(args):
+    if not args:
+        util.die(ROLE_USAGE)
+    verb, rest = args[0], args[1:]
+    root, cfg, paths = setup()
+    names = _positionals(rest)
+
+    def one_name():
+        if len(names) != 1:
+            util.die(ROLE_USAGE)
+        return names[0]
+
+    try:
+        if verb == "list":
+            belt = set(cfg.names())
+            print(f"  {'NAME':<20}{'STATUS':<12}{'SKILLS'}")
+            for name in roleslib.list_names(root):
+                skills = ",".join(roleslib.assigned_skills(root, name)) or "-"
+                status = "on belt" if name in belt else "library"
+                print(f"  {name:<20}{status:<12}{skills}")
+            return
+
+        if verb == "show":
+            name = one_name()
+            path = roleslib.md_path(root, name)
+            if not os.path.isfile(path):
+                util.die(f"conveyor role show: unknown role {name!r}; create roles/{name}.md first")
+            belt = "on belt" if name in cfg.names() else "library"
+            skills = roleslib.assigned_skills(root, name)
+            print(f"{path}  [{belt}]")
+            print(f"  skills: {', '.join(skills) if skills else 'none'}")
+            print()
+            print(util.read_text(path), end="")
+            return
+
+        if verb == "new":
+            if len(names) != 1:
+                util.die(ROLE_USAGE)
+            from_name = _flag(rest, "--from")
+            roleslib.create(root, names[0], from_name=from_name)
+            return print(f"roles/{names[0]}.md created")
+
+        if verb == "delete":
+            name = one_name()
+            roleslib.delete(root, paths, cfg, name)
+            return print(f"roles/{name}.md deleted")
+
+        if verb == "skills":
+            name = one_name()
+            raw = _flag(rest, "--set")
+            if raw is not None:
+                skills = [s.strip() for s in raw.split(",") if s.strip()]
+                roleslib.write_skills(root, name, skills)
+                return print(f"roles/{name}.skills saved")
+            assigned = roleslib.assigned_skills(root, name)
+            avail = roleslib.available_skills(root)
+            print(f"assigned: {', '.join(assigned) if assigned else 'none'}")
+            if avail:
+                print("available:")
+                for s in avail:
+                    desc = f" — {s['description']}" if s["description"] else ""
+                    src = f" ({s['source']})" if s.get("source") else ""
+                    print(f"  {s['name']}{desc}{src}")
+            else:
+                print("available: none (add .agents/skills/<name>/SKILL.md "
+                      "or .cursor/skills/<name>/SKILL.md)")
+            return
+    except roleslib.RoleError as e:
+        util.die(f"conveyor role {verb}: {e}")
+
+    util.die(ROLE_USAGE)
+
+
+GATE_USAGE = "usage: conveyor gate list | run <name> [--role <role>]"
+
+
+def cmd_gate(args):
+    if not args:
+        util.die(GATE_USAGE)
+    verb, rest = args[0], args[1:]
+    root, cfg, paths = setup()
+    try:
+        catalog = gates.read_catalog(root)
+    except gates.GateParseError as e:
+        util.die(f"conveyor gate: project.md: {e}")
+
+    if verb == "list":
+        for name in sorted(catalog.commands):
+            argv = catalog.commands[name]
+            print(f"{name}\t{argv or '(empty)'}")
+        return
+
+    if verb == "run":
+        if not rest or rest[0].startswith("-"):
+            util.die(GATE_USAGE)
+        name = rest[0]
+        role = _flag(rest, "--role")
+        wt = paths.worktree(role) if role else root
+        if role and not os.path.isdir(wt):
+            util.die(f"conveyor gate run: no worktree for role {role!r}; run conveyor start")
+        try:
+            catalog = gates.read_catalog(root, wt=wt)
+        except gates.GateParseError as e:
+            util.die(f"conveyor gate run: project.md: {e}")
+        if name not in catalog.commands:
+            util.die(f"conveyor gate run: unknown gate {name!r}")
+        argv = catalog.commands[name]
+        if not argv.strip():
+            return print(f"{name}: skipped (empty command)")
+        head = util.git(["rev-parse", "--short=10", "HEAD"], wt)
+        inbound = head
+        task = "manual"
+        log_role = role or "operator"
+        if role:
+            items = layout.handoffs(paths.role(role).in_process)
+            if len(items) == 1:
+                inbound = handoff.read(os.path.join(paths.role(role).in_process, items[0]))[0]["commit"]
+                task = handoff.read(os.path.join(paths.role(role).in_process, items[0]))[0]["task"]
+        try:
+            expanded = gates.expand(argv, inbound, head)
+        except gates.GateSubstError as e:
+            util.die(f"conveyor gate run: unknown placeholder {e.token}")
+        try:
+            gates.run(paths, wt, log_role, task, head, name, expanded)
+        except gates.GateFailedError as e:
+            util.die(f"conveyor gate run: exit {e.exit_code} (see {os.path.relpath(e.log_path, root)})")
+        print(f"{name}: ok")
+        return
+
+    util.die(GATE_USAGE)
+
+
+COMMANDS = {"init": cmd_init, "uninstall": cmd_uninstall, "start": cmd_start, "stop": cmd_stop,
+            "task": cmd_task, "status": cmd_status, "log": cmd_log, "resume": cmd_resume,
             "import": cmd_import, "intake": cmd_intake, "inbox": cmd_inbox,
             "start-task": cmd_start_task, "approve": cmd_approve, "reject": cmd_reject,
-            "workflow": cmd_workflow}
+            "role": cmd_role,
+            "workflow": cmd_workflow, "gate": cmd_gate}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:

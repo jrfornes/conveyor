@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.0-rc1 — 2026-09-06
+
+**Thicker 0.x snapshot after `v0.3.0-rc1`. Live Cursor (M3) not verified.**
+
+**In**
+
+- Named project gate catalog (`## Gates` + `## Required on`) with `{inbound}` / `{head}` substitutions; legacy `## Test command` unchanged
+- `conveyor gate list|run`; cockpit Run now on Roles project tab
+- Role library CRUD (`conveyor role list|show|new|delete|skills`) and cockpit new-role dialog
+- Role skills from repo-root `.agents/skills` or `.cursor/skills` (agents wins on duplicate names; worktree copy keeps source path)
+- `conveyor uninstall [--yes] [--bundle]` — runtime teardown for test/dev consumer projects
+
+**Out**
+
+- M3 (first live Cursor run) — still unverified until archived
+- `v1.0.0` (official usable) — M3 archived + D2 documented
+- Chime, async intake HTTP
+- PRD Appendix B features
+
+**Known limits**
+
+- UI `Start` calls `conveyor start --no-smoke` — CLI smoke still runs on direct `conveyor start`
+- Intake grade blocks the HTTP request until the one-shot finishes (no progress UI)
+- Workflow presets live in gitignored `.conveyor/` (per-checkout, not shared via git)
+
 ## 0.3.0-rc1 — 2026-09-05
 
 **Protocol-complete release candidate. Live Cursor (M3) not verified.**

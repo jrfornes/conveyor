@@ -1,11 +1,12 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { AgentModel, RoleRecord } from '../models';
 
 @Component({
@@ -15,10 +16,11 @@ import { AgentModel, RoleRecord } from '../models';
     FormsModule,
     MatCardModule,
     MatButtonModule,
-    MatAutocompleteModule,
+    MatSelectModule,
     MatFormFieldModule,
     MatInputModule,
     MatIconModule,
+    MatTooltipModule,
   ],
   template: `
     <div class="cards">
@@ -35,6 +37,17 @@ import { AgentModel, RoleRecord } from '../models';
             </span>
             <mat-card-title>{{ role.name }}</mat-card-title>
             <mat-card-subtitle>{{ badge(role) }}</mat-card-subtitle>
+            @if (!role.in_workflow) {
+              <button
+                mat-icon-button
+                class="delete"
+                matTooltip="Delete library role"
+                [disabled]="busy"
+                (click)="onDelete($event, role)"
+              >
+                <mat-icon>delete</mat-icon>
+              </button>
+            }
           </mat-card-header>
           <mat-card-content>
             <p class="owns">{{ role.avatar.owns }}</p>
@@ -52,15 +65,8 @@ import { AgentModel, RoleRecord } from '../models';
               <div class="runtime" (click)="$event.stopPropagation()">
                 <mat-form-field appearance="outline" subscriptSizing="dynamic">
                   <mat-label>Model</mat-label>
-                  <input
-                    matInput
-                    [matAutocomplete]="modelAuto"
-                    [(ngModel)]="role.model"
-                    [disabled]="locked"
-                    autocomplete="off"
-                  />
-                  <mat-autocomplete #modelAuto="matAutocomplete">
-                    @for (m of filteredModels(role.model); track m.id) {
+                  <mat-select [(ngModel)]="role.model" [disabled]="locked">
+                    @for (m of modelOptions(role.model); track m.id) {
                       <mat-option [value]="m.id">
                         <span class="mid">{{ m.id }}</span>
                         @if (m.label && m.label !== m.id) {
@@ -68,7 +74,7 @@ import { AgentModel, RoleRecord } from '../models';
                         }
                       </mat-option>
                     }
-                  </mat-autocomplete>
+                  </mat-select>
                 </mat-form-field>
                 <div class="ceilings">
                   <mat-form-field appearance="outline" subscriptSizing="dynamic">
@@ -117,6 +123,12 @@ import { AgentModel, RoleRecord } from '../models';
     }
     .hop .verdict { font-family: ui-monospace, monospace; opacity: 0.65; }
     .card.selected { outline: 2px solid var(--mat-sys-primary, #1976d2); }
+    mat-card-header { position: relative; }
+    .delete {
+      position: absolute;
+      top: 0;
+      right: 0;
+    }
     .avatar {
       display: flex; align-items: center; justify-content: center; color: #fff;
       mat-icon { font-size: 20px; width: 20px; height: 20px; }
@@ -137,13 +149,17 @@ export class RoleCardsComponent {
   @Input() busy = false;
   @Output() select = new EventEmitter<string>();
   @Output() saveRuntime = new EventEmitter<RoleRecord>();
+  @Output() deleteRole = new EventEmitter<RoleRecord>();
 
-  filteredModels(query: string | undefined): AgentModel[] {
-    const q = (query ?? '').trim().toLowerCase();
-    if (!q || this.models.some((m) => m.id.toLowerCase() === q)) return this.models;
-    return this.models.filter(
-      (m) => m.id.toLowerCase().includes(q) || m.label.toLowerCase().includes(q),
-    );
+  onDelete(event: Event, role: RoleRecord): void {
+    event.stopPropagation();
+    this.deleteRole.emit(role);
+  }
+
+  modelOptions(current: string | undefined): AgentModel[] {
+    const id = (current ?? '').trim();
+    if (!id || this.models.some((m) => m.id === id)) return this.models;
+    return [...this.models, { id, label: id }];
   }
 
   badge(role: RoleRecord): string {

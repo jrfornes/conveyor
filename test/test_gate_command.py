@@ -1,4 +1,4 @@
-"""Project test command gate: ready/pass run the fence; findings/empty skip."""
+"""Project gate catalog: ready/pass run required gates; findings/empty skip."""
 import os
 import unittest
 
@@ -30,13 +30,16 @@ class GateCommand(ConveyorTest):
         fx.loop_crash("reviewer", "after-agent")
         return fx.paths.worktree("reviewer")
 
-    def commit_fence(self, role, inner):
+    def write_project(self, role, text):
         wt = self.fx.paths.worktree(role)
         with open(os.path.join(wt, "project.md"), "w") as f:
-            f.write("# Project\n\n## Test command\n\n```\n" + inner + "\n```\n")
+            f.write(text)
         self.fx.git("add", "project.md", cwd=wt)
-        self.fx.git("commit", "-q", "--no-verify", "-m", f"Set test command\n\nBy {role}.", cwd=wt)
+        self.fx.git("commit", "-q", "--no-verify", "-m", f"Set project gates\n\nBy {role}.", cwd=wt)
         return wt
+
+    def commit_fence(self, role, inner):
+        return self.write_project(role, "# Project\n\n## Test command\n\n```\n" + inner + "\n```\n")
 
     def draft(self, role, text):
         path = os.path.join(self.fx.paths.worktree(role), "tmp", "handoff.txt")
@@ -98,6 +101,7 @@ class GateCommand(ConveyorTest):
         self.assertEqual(layout.handoffs(rp.outbox), [])
         names = self.gates_names()
         self.assertEqual(len(names), 1, names)
+        self.assertTrue(names[0].endswith("-test.txt"), names)
         with open(os.path.join(self.fx.paths.gates, names[0]), encoding="utf-8") as f:
             log = f.read()
         self.assertIn("gate-fail", log)
@@ -131,9 +135,95 @@ class GateCommand(ConveyorTest):
         self.assertEqual(layout.handoffs(rp.outbox), [])
         names = self.gates_names()
         self.assertEqual(len(names), 1, names)
+        self.assertTrue(names[0].endswith("-test.txt"), names)
         with open(os.path.join(self.fx.paths.gates, names[0]), encoding="utf-8") as f:
             log = f.read()
         self.assertIn("gate-fail", log)
+
+    def test_named_gates_run_in_order(self):
+        self.coder_ready()
+        text = """# Project
+
+## Gates
+
+test:
+```
+exit 0
+```
+
+lint:
+```
+echo lint-ran; exit 1
+```
+
+## Required on
+
+coder ready: test, lint
+"""
+        self.write_project("coder", text)
+        self.draft("coder", CODER_READY)
+        rp = self.fx.paths.role("coder")
+        r = self.fx.handoff("coder")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("gate lint failed", r.stdout)
+        self.assertEqual(os.listdir(rp.audit_pending), [])
+        names = self.gates_names()
+        self.assertEqual(len(names), 1, names)
+        self.assertIn("-lint.txt", names[0])
+
+    def test_inbound_substitution(self):
+        self.coder_ready()
+        inbound = layout.handoffs(self.fx.paths.role("coder").in_process)[0]
+        from harness import handoff as handoff_mod
+        inbound_commit = handoff_mod.read(
+            os.path.join(self.fx.paths.role("coder").in_process, inbound))[0]["commit"]
+        text = f"""# Project
+
+## Gates
+
+test:
+```
+test "{{inbound}}" = "{inbound_commit}" || exit 1
+```
+
+## Required on
+
+coder ready: test
+"""
+        self.write_project("coder", text)
+        self.draft("coder", CODER_READY)
+        r = self.fx.handoff("coder")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("AUDIT_REQUIRED", r.stdout)
+
+    def test_start_refuses_unknown_gate(self):
+        text = """# Project
+
+## Gates
+
+test:
+```
+exit 0
+```
+
+## Required on
+
+coder ready: test, missing
+"""
+        with open(os.path.join(self.fx.root, "project.md"), "w") as f:
+            f.write(text)
+        r = self.fx.conveyor("start", "--no-smoke", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("unknown gate", r.stderr + r.stdout)
+        self.assertIn("missing", r.stderr + r.stdout)
+
+    def test_gate_run_matches_handoff(self):
+        self.coder_ready()
+        inner = "echo gate-cli; exit 0"
+        self.commit_fence("coder", inner)
+        r = self.fx.conveyor("gate", "run", "test", "--role", "coder")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("ok", r.stdout)
 
 
 if __name__ == "__main__":

@@ -133,6 +133,21 @@ export class ConveyorApiService {
     return this.http.post<{ ok: boolean }>(`${this.base}/roles`, { name, text });
   }
 
+  createRole(name: string, from?: string): Observable<{ ok: boolean; message: string }> {
+    return this.http.post<{ ok: boolean; message: string }>(
+      `${this.base}/roles/create`, { name, ...(from ? { from } : {}) });
+  }
+
+  deleteRole(name: string): Observable<{ ok: boolean; message: string }> {
+    return this.http.post<{ ok: boolean; message: string }>(
+      `${this.base}/roles/delete`, { name });
+  }
+
+  saveRoleSkills(name: string, skills: string[]): Observable<{ ok: boolean; message: string }> {
+    return this.http.post<{ ok: boolean; message: string }>(
+      `${this.base}/roles/skills`, { name, skills });
+  }
+
   saveRoleRuntime(
     name: string,
     model: string,
@@ -151,6 +166,13 @@ export class ConveyorApiService {
 
   saveProject(text: string): Observable<{ ok: boolean }> {
     return this.http.post<{ ok: boolean }>(`${this.base}/project`, { text });
+  }
+
+  runGate(name: string, role?: string): Observable<{ ok: boolean; message: string }> {
+    return this.http.post<{ ok: boolean; message: string }>(`${this.base}/gates/run`, {
+      name,
+      ...(role ? { role } : {}),
+    });
   }
 
   intakeSettings(): Observable<IntakeState> {

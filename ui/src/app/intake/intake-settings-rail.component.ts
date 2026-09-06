@@ -4,6 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 import { AgentModel, IntakeState, RoleAvatar } from '../models';
@@ -18,6 +19,7 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
     MatButtonModule,
     MatFormFieldModule,
     MatInputModule,
+    MatSelectModule,
     MatIconModule,
     MatSnackBarModule,
   ],
@@ -35,15 +37,19 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
       </header>
 
       <div class="fields">
-        <label>
-          Model
-          <input list="intake-models" [(ngModel)]="model" (ngModelChange)="configDirty = true" />
-          <datalist id="intake-models">
-            @for (m of models; track m.id) {
-              <option [value]="m.id">{{ m.label }}</option>
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="model-field">
+          <mat-label>Model</mat-label>
+          <mat-select [(ngModel)]="model" (ngModelChange)="configDirty = true">
+            @for (m of modelOptions(model); track m.id) {
+              <mat-option [value]="m.id">
+                <span class="mid">{{ m.id }}</span>
+                @if (m.label && m.label !== m.id) {
+                  <span class="mlabel">{{ m.label }}</span>
+                }
+              </mat-option>
             }
-          </datalist>
-        </label>
+          </mat-select>
+        </mat-form-field>
         <label>
           Minutes
           <input type="number" min="0" [(ngModel)]="minutes" (ngModelChange)="configDirty = true" />
@@ -138,9 +144,12 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
     .tag { margin: 2px 0 0; font-size: 12px; color: rgba(0,0,0,0.6); }
     .path { font-size: 11px; color: rgba(0,0,0,0.5); }
     .fields {
-      display: grid; grid-template-columns: 1fr 72px 72px auto;
+      display: grid; grid-template-columns: minmax(160px, 1fr) 72px 72px auto;
       gap: 8px; align-items: end;
     }
+    .model-field { min-width: 0; }
+    .mid { font-family: ui-monospace, monospace; }
+    .mlabel { margin-left: 8px; opacity: 0.65; font-size: 12px; }
     .fields label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: rgba(0,0,0,0.55); }
     .fields input {
       font: inherit; font-size: 13px; padding: 6px 8px;
@@ -198,6 +207,12 @@ export class IntakeSettingsRailComponent implements OnInit {
   jiraTestOk = false;
 
   constructor(private api: ConveyorApiService, private snack: MatSnackBar) {}
+
+  modelOptions(current: string | undefined): AgentModel[] {
+    const id = (current ?? '').trim();
+    if (!id || this.models.some((m) => m.id === id)) return this.models;
+    return [...this.models, { id, label: id }];
+  }
 
   ngOnInit(): void {
     this.api.intakeSettings().subscribe({

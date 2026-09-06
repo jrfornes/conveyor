@@ -117,3 +117,18 @@ def save_workflow(root, slug, body):
 
 def delete_workflow(root, slug):
     return run(root, "workflow", "delete", slug)
+
+
+def create_role(root, name, from_name=None):
+    args = ["role", "new", name]
+    if from_name:
+        args += ["--from", from_name]
+    return run(root, *args)
+
+
+def delete_role(root, name):
+    return run(root, "role", "delete", name)
+
+
+def set_role_skills(root, name, skills):
+    return run(root, "role", "skills", name, "--set", ",".join(skills))

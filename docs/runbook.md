@@ -28,10 +28,11 @@ cursor-agent --list-models
 1. From the target repo root (with `conveyor` on `PATH`): `conveyor init`. This copies `constitution.md`, `constitution/`, `roles/`, `conveyor.conf.example`, and (only if missing) `project.md`; creates `conveyor.conf` from the example when missing; creates `tasks/`; and appends the required `.gitignore` entries. Safe to re-run — operator-owned files are never overwritten. Review and commit.
 2. Edit `project.md`: test command, language, anything the reviewer should treat as a requirement.
 3. Edit `conveyor.conf` and fill in the two model names.
-4. Make sure the project's test command passes on a clean checkout. On `ready` and `pass`, `handoff.sh` runs the `## Test command` fence from the worktree's `project.md`. An empty fence (or only an HTML comment) is skipped. A nonzero exit is `E_GATE_FAILED`; `cat .conveyor/logs/gates/<role>-<task>-<commit>.txt` for the output.
+4. Make sure the project's test command passes on a clean checkout. On `ready` and `pass`, `handoff.sh` runs the required gates from the worktree's `project.md` (legacy `## Test command` fence or `## Gates` + `## Required on`). An empty fence or command is skipped. A nonzero exit is `E_GATE_FAILED`; `cat .conveyor/logs/gates/<role>-<task>-<commit>-<name>.txt` for the output. Run a gate manually with `conveyor gate run <name>` (add `--role <role>` to use that worktree and inbound commit).
 5. `conveyor start`. It will:
    - create one `.worktrees/<role>` per configured role on branch `conveyor-<role>` (e.g. `.worktrees/coder`, `.worktrees/reviewer` for the default Review belt)
    - write `.cursor/rules/conveyor-role.mdc` into each (constitution + role, concatenated)
+   - copy assigned skill trees from `roles/<role>.skills` into each worktree at the same relative path under `.agents/skills/<name>/` or `.cursor/skills/<name>/` (repo root; `.agents/skills` wins when both exist)
    - install the byline `commit-msg` hook
    - create `.conveyor/` queue directories and `board.tsv`
    - run a smoke test (`cursor-agent -p "reply with the word ok"` in each worktree) and check the rules file loaded
@@ -54,7 +55,11 @@ cursor-agent --list-models
 | Accept or skip a graded ticket | `conveyor inbox approve <id>` or `conveyor inbox skip <id>` |
 | Approve or reject a gated handoff | `conveyor approve <id>` or `conveyor reject <id>` |
 | List or switch workflows | `conveyor workflow list` or `conveyor workflow activate <slug>` |
+| Create a coding role | `conveyor role new <name>` (optional `--from <other>`); then add it with `conveyor workflow edit` |
+| Assign skills to a role | `conveyor role skills <name> --set a,b,c` (from `.agents/skills/*/SKILL.md` or `.cursor/skills/*/SKILL.md`; agents wins on duplicate names) |
 | Open the localhost cockpit | `conveyor-ui` (or `conveyor-ui --demo` for a throwaway fixture) |
+| List or run project gates | `conveyor gate list` or `conveyor gate run <name> [--role <role>]` |
+| Tear down runtime state (test/dev) | `conveyor uninstall --yes` (add `--bundle` to also remove init files) |
 
 Task names: `^[a-z0-9][a-z0-9.-]*$`, unique for the life of the board.
 
@@ -88,7 +93,7 @@ High `audit` with low `retry` means the coder is being challenged and fixing thi
 - **Merge conflict on `pass`:** parked with reason `merge-conflict`. Resolve on `main` by hand (commit gets `By operator.`), then `conveyor resume <task>`.
 - **Two files in `in_process/`:** the loop refuses to start and says so. Move one back to `new/` by hand; this only happens after manual edits.
 - **Agent keeps failing to hand off:** read the log; usually a validator error it did not follow. After `max_attempts` it parks. Fix the prompt or the task, `conveyor resume`.
-- **Wipe and restart:** `conveyor stop`, `rm -rf .conveyor .worktrees`, delete `conveyor-*` branches. Sequence numbers reset; `sent/` history is gone.
+- **Wipe and restart:** `conveyor stop --now && conveyor uninstall --yes`. Sequence numbers reset; `sent/` history is gone. Add `--bundle` for a full scratch reset (also removes `constitution/`, `roles/`, `conveyor.conf`, `tasks/`, and the Conveyor `.gitignore` entries). Does not rewrite history on `main`.
 
 ## 8. Testing without Cursor
 

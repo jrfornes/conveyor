@@ -31,6 +31,7 @@ conveyor workflow list
 conveyor workflow activate <slug>
 conveyor-ui                # optional localhost cockpit
 conveyor stop              # or stop --now
+conveyor uninstall --yes   # tear down runtime; add --bundle for init files too
 ```
 
 Operator docs: [`docs/runbook.md`](docs/runbook.md).
@@ -46,6 +47,7 @@ Runs the fake-agent suite (no Cursor required).
 ## Release
 
 See [`docs/release-review.md`](docs/release-review.md) for the RC / official-usable checklist.
+`v0.4.0-rc1` is tagged. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Layout
 

@@ -4,7 +4,7 @@ A practical checklist for reviewing the project and cutting an **official usable
 Grounded in the PRD (`docs/conveyor-prd.md` §9), `IMPLEMENT.md`, the conformance matrix,
 and the moat scan.
 
-**Last reviewed:** 2026-09-05
+**Last reviewed:** 2026-09-06
 
 ---
 
@@ -20,8 +20,12 @@ The project defines **“ship after M4”** in the PRD, with one manual gate on 
 | **M4** Ceilings + status | Done (automated) | `test/test_m4_ceilings.py` |
 | **M3** First live Cursor run | **Not done** | No `test/fixtures/m3/`; called out in `IMPLEMENT.md`, `CHANGELOG.md`, `docs/plans/moat-gap-scan.md` |
 
-Stages 0–4 (n-role pipelines, workflow CRUD, UI cockpit, intake module) ship in
-`v0.3.0-rc1`. Confirm the tag’s tree matches that surface — do not release from an
+Stages 0–4 (n-role pipelines, workflow CRUD, UI cockpit, intake module) shipped in
+`v0.3.0-rc1`. Work after that lands on `main`. The next named snapshot is
+**`v0.4.0-rc1`** when the tree is thicker than an rc1 bugfix (see
+[`CHANGELOG.md`](../CHANGELOG.md) Unreleased and [`docs/plans/0.4.0-rc1.md`](plans/0.4.0-rc1.md)).
+`v1.0.0` still means M3 archived + D2 documented, not “more features.”
+Confirm the tag’s tree matches the changelog — do not release from an
 undocumented working tree.
 
 ---
@@ -177,7 +181,7 @@ Before tagging, grep for stale copy:
 |-----|-------|
 | `README.md` | Install, command list, UI description matches shipped scope |
 | `conveyor-manual.md` | Glance should say UI ships in v0.3.0-rc1; CLI alone is sufficient |
-| `CHANGELOG.md` | Move “Unreleased” bullets into versioned section; list M3 status |
+| `CHANGELOG.md` | Unreleased buckets match [`docs/plans/0.4.0-rc1.md`](plans/0.4.0-rc1.md); at tag time rename Unreleased → `0.4.0-rc1` and list M3 status |
 | `IMPLEMENT.md` | Update M3 status after live run |
 | `docs/conveyor-prd.md` | Still “Draft v0.3” — bump status when you release |
 | `docs/plans/moat-gap-scan.md` | Refresh test count and date |
@@ -191,9 +195,9 @@ Open PRD questions worth deciding before 1.0 (not blockers, but operators will h
 
 ### 8. Repository hygiene (before tag)
 
-1. **Commit strategy**: Either one large release commit or logical slices (core CLI → workflows → intake → UI). Nothing intended for release should stay untracked.
-2. **Tag**: e.g. `v1.0.0` if M3 done + scope frozen, or `v0.3.0-rc1` if protocol-complete but M3 pending.
-3. **Version numbering**: CHANGELOG uses 0.1.0 / 0.2.0 semantics; next is likely **0.3.0** (Stage 4 + intake) or **1.0.0** after M3 if “official” means 1.x.
+1. **Commit strategy**: Land on `main` as you go. Nothing intended for the tag should stay untracked.
+2. **Tag**: `v0.4.0-rc1` for the next thicker snapshot (M3 may still be open); `v0.3.0-rc2` only for a thin rc1 patch with no new product; `v1.0.0` only when M3 is archived and D2 is documented.
+3. **Version numbering**: `0.1` CLI, `0.2` workflows/UI (untagged), `0.3` intake + cockpit. Another product bump is **0.4**. `1.0.0` means live Cursor verified, not a longer changelog. Rules in [`docs/plans/next-chapters.md`](plans/next-chapters.md).
 4. **`.gitignore`**: Ensure `.conveyor/`, `.worktrees/`, `ui/node_modules/`, `.conveyor/local/jira.json` patterns are correct for operators cloning Conveyor vs using it in target repos.
 5. **No secrets**: Confirm no tokens in tracked files; Jira creds stay in gitignored path.
 
@@ -212,29 +216,35 @@ flowchart TD
 
 | Tier | Label | Requirements |
 |------|-------|--------------|
-| **RC** | `v0.3.0-rc1` | Tests green, docs aligned, UI smoke, git clean; M3 not done |
-| **Official CLI** | `v1.0.0` | RC + M3 archived + D2 documented |
+| **RC (shipped)** | `v0.3.0-rc1` | Tests green, docs aligned, UI smoke; M3 not done |
+| **Next snapshot** | `v0.4.0-rc1` | Features + fixes + maintenance on `main`; tests green; plan + Unreleased agree; M3 may still be open |
+| **Thin rc1 patch** | `v0.3.0-rc2` | Optional. Same surface as rc1, bugs only |
+| **Official CLI** | `v1.0.0` | A tagged RC + M3 archived + D2 documented |
 | **Official + UI** | `v1.0.0` (same tag, broader notes) | Above + UI build + manual cockpit smoke |
 
-### RC tier (`v0.3.0-rc1`)
+### Shipped RC (`v0.3.0-rc1`)
 
-This is the current ship target: **CLI + core UI cockpit**, protocol-complete, live Cursor unverified.
+**CLI + core UI cockpit**, protocol-complete, live Cursor unverified.
 
-- **In the tag:** tests green (~237), docs aligned (`CHANGELOG.md` 0.3.0-rc1, manual no longer says UI is preview), Inbox/Board/Workflow/Roles smoke on a throwaway repo
-- **After the tag:** run M3 against **this tagged build** (not an older HEAD), archive `test/fixtures/m3/`, then cut `v1.0.0`
-- **Not required for the RC:** chime, async intake HTTP, “Run now” gates, D2 auto-merge decision, extra `test_ui_api.py` coverage
+- **In the tag:** tests green (~237), docs aligned (`CHANGELOG.md` 0.3.0-rc1), Inbox/Board/Workflow/Roles smoke
+- **After the tag:** M3 may run against **this tagged build** while `main` moves toward 0.4. Archive `test/fixtures/m3/`. Fixes ride into 0.4 unless you cut a thin `v0.3.0-rc2`.
+- **Not required for that RC:** chime, async intake HTTP, “Run now” gates, D2 auto-merge decision, extra `test_ui_api.py` coverage
+
+### Next snapshot (`v0.4.0-rc1`)
+
+Scope is whatever you put in [`docs/plans/0.4.0-rc1.md`](plans/0.4.0-rc1.md) and have landed under CHANGELOG Unreleased. Same review bar: suite green, UI `tsc`/`build` if `ui/` changed, changelog matches the tree.
 
 ---
 
 ## Recommended sequence
 
-1. **Commit** the intended RC surface so the tag matches review.
-2. **Run the full test suite** and UI `tsc`/`build`; fix any red tests.
-3. **Tag `v0.3.0-rc1`** (protocol-complete, M3 pending).
-4. **Execute M3** on a small target repo against that tag; archive fixtures.
-5. **Resolve D2** (auto-merge policy) in `conveyor-conformance-matrix.md`.
+1. **Edit** [`docs/plans/0.4.0-rc1.md`](plans/0.4.0-rc1.md) as you decide what belongs in the next tag.
+2. **Land** work on `main`; keep CHANGELOG **Unreleased** in sync.
+3. **M3** on `v0.3.0-rc1` (or later on 0.4); archive fixtures; put proven bugs under Fixes.
+4. **When the plan and the tree agree:** suite + UI build green; rename Unreleased → `0.4.0-rc1`; tag `v0.4.0-rc1`.
+5. **Resolve D2** (auto-merge policy) in `conveyor-conformance-matrix.md` before calling it official.
 6. **One operator dry-run** using only `docs/runbook.md` (no reading source).
-7. **Cut `v1.0.0`** when M3 is archived and D2 is documented.
+7. **Cut `v1.0.0`** when M3 is archived and D2 is documented (that tree may be 0.4).
 
 ---
 
@@ -257,5 +267,7 @@ This is the current ship target: **CLI + core UI cockpit**, protocol-complete, l
 | [`docs/runbook.md`](runbook.md) | Operator setup and day-to-day |
 | [`conveyor-conformance-matrix.md`](../conveyor-conformance-matrix.md) | Manual ↔ MVP mapping |
 | [`docs/plans/moat-gap-scan.md`](plans/moat-gap-scan.md) | Enforced vs prompt-only vs overclaim |
+| [`docs/plans/next-chapters.md`](plans/next-chapters.md) | Versioning: 0.4-rc1 next; 1.0.0 = M3 proven |
+| [`docs/plans/0.4.0-rc1.md`](plans/0.4.0-rc1.md) | Intended contents of the next tag (edit this) |
 | [`CHANGELOG.md`](../CHANGELOG.md) | Version history and release notes |
 | [`conveyor-manual.md`](../conveyor-manual.md) | User manual and build checklist |

@@ -176,30 +176,30 @@ Mark **Docs-drift** if README, UI copy, or a plan says these are done.
 
 ---
 
-## 4. Deterministic gates (known hole)
+## 4. Deterministic gates
 
 Expected end state: `project.md` names commands; the belt says which hop
-requires which name; `handoff.sh` or the loop execs them; UI can "Run now".
+requires which name; `handoff.sh` execs them; UI can "Run now".
 
-- [ ] **Missing** Structured `## Gates` (or equivalent) in `project.md` — else one fence
-      Proof: `project.md` has `## Test command` only
-- [ ] **Missing** Substitutions `{inbound}` `{head}` documented
+- [x] **Done** Structured `## Gates` + `## Required on` in `project.md` (legacy
+      `## Test command` still supported)
+      Proof: `lib/conveyor/gates.py`; `project.md` template
+- [x] **Done** Substitutions `{inbound}` `{head}` documented and enforced
+      Proof: `docs/conveyor-handoff-protocol.md`; `test/test_gates.py`
 - [x] **Done** `handoff.sh` runs required gates **before** audit
-      Proof: `bin/handoff.sh` calls `run_test_command` after SHA check, before
-      `gate()`; `test/test_gate_command.py`
+      Proof: `bin/handoff.sh` `run_project_gates`; `test/test_gate_command.py`
 - [x] **Done** `E_GATE_FAILED` + log under `.conveyor/logs/gates/`
       Proof: `test_errors.Errors.test_E_GATE_FAILED`; `test/test_gate_command.py`
-- [ ] **Missing** Start refuses if a hop requires a gate name with no command
-- [ ] **Missing** Check vs write separated (`format:check` vs `format:write`)
-- [ ] **Missing** Operator "Run now" uses the **same** argv table
-      Grep `Run now` in `ui/src`: empty
+- [x] **Done** Start refuses if a hop requires a gate name with no command
+      Proof: `validate_project_gates` in `bin/conveyor`; `test_gate_command.test_start_refuses_unknown_gate`
+- [x] **Done** Check vs write separated by naming (`lint:check` vs `format:write`)
+      Proof: gate name regex in `gates.py`; catalog is operator-defined
+- [x] **Done** Operator "Run now" uses the **same** argv table
+      Proof: `conveyor gate run`; `POST /api/gates/run`; UI Run buttons
 - [x] **Done** e2e is not on the default coder→reviewer hop
-      Proof: no hop-gate table exists, so e2e is not wired to that hop
+      Proof: no e2e gate in default template
 - [x] **Done** Conveyor does not parse `nx.json` / `project.json`
       Grep under `bin/` `lib/` `ui/server/`: no matches
-
-Hop table, substitutions, start-refusal, check-vs-write, and "Run now" remain
-Missing. The thin `## Test command` fence is Done (runs before audit).
 
 ---
 
@@ -232,8 +232,9 @@ Skin (theme, chat, skill marketplace) is not a gap. Substrate is.
 
 Attachments (Missing unless you find code):
 
-- [ ] **Missing** Skills per role persisted (not just leftover `role.args`)
-      Proof: `Role.args` is leftover CLI tokens in `config.py`, not skills
+- [x] **Done** Skills per role persisted in `roles/<name>.skills`
+      Proof: `lib/conveyor/roles.py` `write_skills` / `inject_skills`;
+      `conveyor role skills`; `POST /api/roles/skills`; `test/test_roles.py`
 - [ ] **Missing** Custom `.cursor/agents/*.md` shipped per worktree
 - [ ] **Missing** Per-role sandbox / MCP allowlist
 - [ ] **Missing** Named recipes beyond Review belt / Spec then build
