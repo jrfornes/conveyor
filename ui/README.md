@@ -16,7 +16,7 @@ From the Conveyor repo root:
 bin/conveyor-ui --demo
 ```
 
-Creates a throwaway checkout (queued task, parked task, inbox item), serves the API, and deletes the fixture on exit. If the Angular app is built (`cd ui && npm run build`), open http://127.0.0.1:8765. Otherwise start the dev server in another terminal (`cd ui && npm start`) and open http://localhost:4200.
+Creates a throwaway checkout (queued task, parked task, inbox item), serves the API, and deletes the fixture on exit. On first run, `bin/conveyor-ui` builds the Angular app automatically (`npm install && npm run build`, needs Node.js 18+ on `PATH`) — open http://127.0.0.1:8765 once it finishes. If `npm` isn't available, it prints instructions and falls back to serving the API only; start the dev server in another terminal (`cd ui && npm start`) and open http://localhost:4200 instead.
 
 `--demo` and `--root` cannot be combined.
 
@@ -38,14 +38,11 @@ Open http://localhost:4200
 
 ## Production (single server)
 
-Build the Angular app, then serve API + static files from one process:
-
 ```bash
-cd ui && npm run build
-PYTHONPATH=. python3 -m ui.server --root /path/to/your/repo --port 8765
+bin/conveyor-ui --root /path/to/your/repo --port 8765
 ```
 
-Open http://127.0.0.1:8765
+Builds the Angular app on first run if it isn't built yet, then serves API + static files from one process. Open http://127.0.0.1:8765. To build manually instead: `cd ui && npm install && npm run build`.
 
 ## What the UI does
 
