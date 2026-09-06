@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(REPO, "test"))
 
 from harness import Fixture  # noqa: E402
 from ui.server.httpd import Handler, ThreadingHTTPServer  # noqa: E402
+from conveyor import config, inbox  # noqa: E402
 
 
 def get(url):
@@ -96,6 +97,25 @@ class UiApiTest(unittest.TestCase):
         self.assertEqual(wf["name"], "Review belt")
         self.assertEqual(wf["status"], "active")
         self.assertEqual(wf["chain"], "coder → reviewer")
+        self.assertEqual(state["intake"], {"busy": False, "task": None})
+
+    def test_intake_busy_reflected_in_state(self):
+        # /api/state is what the UI polls to disable Grade/Improve while
+        # ticket-reviewer's single, shared loop lock is held by another item.
+        iid = inbox.create(self.fx.paths, {
+            "id": "busy-ticket", "source": "manual", "title": "busy-ticket", "status": "grading",
+        }, "# Busy\n")
+        rp = self.fx.paths.role(config.INTAKE_ROLE)
+        os.makedirs(rp.loop_lock, exist_ok=True)
+        with open(os.path.join(rp.loop_lock, "pid"), "w") as f:
+            f.write(str(os.getpid()))
+        try:
+            state = get(f"{self.base}/api/state")
+            self.assertEqual(state["intake"], {"busy": True, "task": iid})
+        finally:
+            shutil.rmtree(rp.loop_lock, ignore_errors=True)
+        state = get(f"{self.base}/api/state")
+        self.assertEqual(state["intake"], {"busy": False, "task": None})
 
     def test_import_list_inbox_approve(self):
         req = urllib.request.Request(

@@ -59,6 +59,13 @@ export interface ApprovalItem {
   file: string;
 }
 
+/** ticket-reviewer's loop lock is shared across every inbox item; only one
+ * grade/improve can run at a time. */
+export interface IntakeStatus {
+  busy: boolean;
+  task: string | null;
+}
+
 export interface ConveyorState {
   title: string;
   root: string;
@@ -74,6 +81,7 @@ export interface ConveyorState {
   running: boolean;
   inbox: InboxItem[];
   approvals: ApprovalItem[];
+  intake: IntakeStatus;
 }
 
 export interface LogEvent {
