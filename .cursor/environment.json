@@ -1,0 +1,10 @@
+{
+  "name": "Conveyor",
+  "install": "cd ui && npm ci && npm run build",
+  "terminals": [
+    {
+      "name": "ui-cockpit-demo",
+      "command": "cd /workspace && bin/conveyor-ui --demo --port 8765"
+    }
+  ]
+}
