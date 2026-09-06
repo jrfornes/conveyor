@@ -11,6 +11,9 @@
 - Role library CRUD (`conveyor role list|show|new|delete|skills`) and cockpit new-role dialog
 - Role skills from repo-root `.agents/skills` or `.cursor/skills` (agents wins on duplicate names; worktree copy keeps source path)
 - `conveyor uninstall [--yes] [--bundle]` — runtime teardown for test/dev consumer projects
+- Fail fast with a clear message when any entrypoint is run under Python < 3.10
+- `conveyor-ui` auto-builds the Angular cockpit on first launch when `npm` is on PATH
+- Intake lock is checked before status flips; Grade/Improve disable while ticket-reviewer is busy; empty Jira bodies always reported
 
 **Out**
 
