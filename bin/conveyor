@@ -18,6 +18,11 @@ import subprocess
 import sys
 import time
 
+if sys.version_info < (3, 10):
+    print(f"conveyor requires Python 3.10+ (found {sys.version.split()[0]} at {sys.executable})",
+          file=sys.stderr)
+    sys.exit(1)
+
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
 from conveyor import (adapters, agent as agentlib, board, config, handoff, inbox,  # noqa: E402

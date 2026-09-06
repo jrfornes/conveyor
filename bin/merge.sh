@@ -4,6 +4,11 @@ Exit 0: merged or already an ancestor. Exit 1: conflict (merge aborted)."""
 import os
 import sys
 
+if sys.version_info < (3, 10):
+    print(f"conveyor requires Python 3.10+ (found {sys.version.split()[0]} at {sys.executable})",
+          file=sys.stderr)
+    sys.exit(1)
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib"))
 from conveyor import queue  # noqa: E402
 
