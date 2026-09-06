@@ -427,12 +427,8 @@ def cmd_import(args):
         tickets = adapters.fetch(source, raw, cfg=cfg, title=title, paths=paths)
     except ValueError as e:
         util.die(f"conveyor import: {e}")
-    if source == "jira":
-        creds = jiralib.resolve(paths, cfg)
-        if not creds["email"] and (cfg.inbox.jira_base or cfg.inbox.jira_token_env):
-            print("notice: Jira Cloud body fetch needs email in .conveyor/local/jira.json "
-                  "(jira_token_env alone is not enough)")
     created = []
+    empty_body = []
     for t in tickets:
         iid = inbox.create(paths, {
             "id": (t.get("external_id") or "").lower().replace("_", "-"),
@@ -444,6 +440,15 @@ def cmd_import(args):
         }, t.get("body") or "")
         created.append(iid)
         print(f"imported {iid}  {t['title']}")
+        if source == "jira" and not (t.get("body") or "").strip():
+            empty_body.append(iid)
+    if empty_body:
+        # Grading works from whatever text is on the item, so this is not
+        # fatal — but a silent empty ticket reads as a broken grade later.
+        print(f"notice: {len(empty_body)} item(s) imported with no ticket body "
+              f"({', '.join(empty_body)}): Jira credentials are missing, incomplete, or the "
+              f"fetch failed. Paste the body into the item, or set site/email/token under "
+              f"Intake settings → Jira and re-import.")
     if not created:
         util.die("conveyor import: nothing imported")
 
@@ -529,43 +534,56 @@ def cmd_intake(args):
     role_md = intakelib.prompt_path(root)
     if not os.path.isfile(role_md):
         util.die(f"conveyor intake: missing {role_md}")
-    inbox.update_meta(paths, iid, status="improving" if improve else "grading")
     paths.ensure(cfg, extra_roles=(config.INTAKE_ROLE,))
-    install_hook(root)
-    wt = ensure_worktree(root, paths, config.INTAKE_ROLE)
-    # One-shot: start from current main so leftover grade.md cannot conflict.
-    util.git(["reset", "--hard", util.git(["rev-parse", "HEAD"], root)], wt)
-    src = inbox.read_file(paths, iid, "source.md")
-    util.atomic_write(os.path.join(wt, "tmp", "source.md"), src if src.endswith("\n") else src + "\n")
-    rp = paths.role(config.INTAKE_ROLE)
-    if os.path.exists(rp.stop):
-        os.remove(rp.stop)
-    queued = False
-    for d in (rp.new, rp.in_process):
-        for f in layout.handoffs(d):
-            try:
-                if handoff.read(os.path.join(d, f))[0].get("task") == iid:
-                    queued = True
-            except (handoff.ParseError, OSError):
-                pass
-    if not queued:
-        op = paths.role("operator")
-        commit = util.git(["rev-parse", "--short=10", "HEAD"], root)
-        mode = "improve" if improve else "grade"
-        headers = {"to": config.INTAKE_ROLE, "task": iid, "verdict": "ready", "type": "git_handoff",
-                   "id": f"operator-{queue.issue_seq(op):06d}", "from": "operator",
-                   "commit": commit, "task_id": f"intake-{iid}", "created_at": util.now(),
-                   "enqueued_at": util.now()}
-        body = f"mode: {mode}\n\n{src}"
-        tmp = os.path.join(rp.inbox_tmp, handoff.filename(headers))
-        handoff.write(tmp, headers, body if body.endswith("\n") else body + "\n")
-        os.rename(tmp, os.path.join(rp.new, handoff.filename(headers)))
-    agent = os.environ.get("CONVEYOR_AGENT_BIN", cfg.agent_bin)
-    env = {**os.environ, "CONVEYOR_ROLE": config.INTAKE_ROLE, "CONVEYOR_WORKTREE": wt,
-           "CONVEYOR_ROOT": root, "CONVEYOR_AGENT_BIN": agent}
-    os.makedirs(os.path.join(paths.logs, config.INTAKE_ROLE), exist_ok=True)
-    r = subprocess.run([os.path.join(BIN, "role-loop.sh"), "--once"], cwd=root, env=env,
-                       capture_output=True, text=True)
+    # Preflight: the ticket-reviewer loop lock is shared across every inbox
+    # item, so a second grade/improve while one is in flight can't run yet.
+    # Caught here, before the item is marked busy, so it stays clickable.
+    busy_pid = layout.loop_pid(paths, config.INTAKE_ROLE)
+    if busy_pid:
+        util.die(f"conveyor intake: ticket-reviewer is busy (pid {busy_pid}) grading or "
+                 f"improving another item; wait for it to finish, then retry {iid}")
+    inbox.update_meta(paths, iid, status="improving" if improve else "grading")
+    try:
+        install_hook(root)
+        wt = ensure_worktree(root, paths, config.INTAKE_ROLE)
+        # One-shot: start from current main so leftover grade.md cannot conflict.
+        util.git(["reset", "--hard", util.git(["rev-parse", "HEAD"], root)], wt)
+        src = inbox.read_file(paths, iid, "source.md")
+        util.atomic_write(os.path.join(wt, "tmp", "source.md"), src if src.endswith("\n") else src + "\n")
+        rp = paths.role(config.INTAKE_ROLE)
+        if os.path.exists(rp.stop):
+            os.remove(rp.stop)
+        queued = False
+        for d in (rp.new, rp.in_process):
+            for f in layout.handoffs(d):
+                try:
+                    if handoff.read(os.path.join(d, f))[0].get("task") == iid:
+                        queued = True
+                except (handoff.ParseError, OSError):
+                    pass
+        if not queued:
+            op = paths.role("operator")
+            commit = util.git(["rev-parse", "--short=10", "HEAD"], root)
+            mode = "improve" if improve else "grade"
+            headers = {"to": config.INTAKE_ROLE, "task": iid, "verdict": "ready", "type": "git_handoff",
+                       "id": f"operator-{queue.issue_seq(op):06d}", "from": "operator",
+                       "commit": commit, "task_id": f"intake-{iid}", "created_at": util.now(),
+                       "enqueued_at": util.now()}
+            body = f"mode: {mode}\n\n{src}"
+            tmp = os.path.join(rp.inbox_tmp, handoff.filename(headers))
+            handoff.write(tmp, headers, body if body.endswith("\n") else body + "\n")
+            os.rename(tmp, os.path.join(rp.new, handoff.filename(headers)))
+        agent = os.environ.get("CONVEYOR_AGENT_BIN", cfg.agent_bin)
+        env = {**os.environ, "CONVEYOR_ROLE": config.INTAKE_ROLE, "CONVEYOR_WORKTREE": wt,
+               "CONVEYOR_ROOT": root, "CONVEYOR_AGENT_BIN": agent}
+        os.makedirs(os.path.join(paths.logs, config.INTAKE_ROLE), exist_ok=True)
+        r = subprocess.run([os.path.join(BIN, "role-loop.sh"), "--once"], cwd=root, env=env,
+                           capture_output=True, text=True)
+    except Exception:
+        # Never leave the item stuck in grading/improving: whatever failed,
+        # the operator must be able to see and re-click it.
+        inbox.update_meta(paths, iid, status="imported")
+        raise
     park_dir = os.path.join(paths.needs_human, iid)
     if os.path.isdir(park_dir):
         reason = "parked"
@@ -577,6 +595,7 @@ def cmd_intake(args):
         inbox.update_meta(paths, iid, status="imported")
         util.die(f"conveyor intake: parked ({reason}); {iid} reset to imported")
     if r.returncode != 0:
+        inbox.update_meta(paths, iid, status="imported")
         util.die(f"conveyor intake: ticket-reviewer loop failed ({r.returncode}):\n{r.stdout}{r.stderr}")
     print((r.stdout or "").strip() or f"intake {iid} finished")
 

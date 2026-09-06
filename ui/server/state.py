@@ -111,9 +111,13 @@ def build_state(root):
     running = any(w.get("running") for w in work) if work else False
     inbox_items = []
     approvals = []
+    intake_busy_pid = loop_pid(paths, config.INTAKE_ROLE) if initialized else 0
+    intake_busy_task = None
     if initialized:
         from conveyor import inbox as inbox_mod
         for it in inbox_mod.list_items(paths):
+            if intake_busy_pid and it.get("status") in ("grading", "improving"):
+                intake_busy_task = it["id"]
             inbox_items.append({
                 "id": it["id"],
                 "source": it.get("source", "-"),
@@ -151,6 +155,7 @@ def build_state(root):
         "running": running,
         "inbox": inbox_items,
         "approvals": approvals,
+        "intake": {"busy": bool(intake_busy_pid), "task": intake_busy_task},
     }
 
 

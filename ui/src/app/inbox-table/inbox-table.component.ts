@@ -2,11 +2,12 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTableModule } from '@angular/material/table';
 import { InboxItem } from '../models';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
 @Component({
   selector: 'app-inbox-table',
   standalone: true,
-  imports: [MatTableModule, MatButtonModule],
+  imports: [MatTableModule, MatButtonModule, MatTooltipModule],
   template: `
     <div class="bar">
       <h2>Inbox</h2>
@@ -16,6 +17,12 @@ import { InboxItem } from '../models';
       </button>
       <button mat-stroked-button (click)="importTickets.emit()">Import</button>
     </div>
+    @if (intakeBusy) {
+      <div class="busy-note" role="status">
+        Ticket-reviewer is busy{{ intakeBusyTask ? ' with ' + intakeBusyTask : '' }} —
+        it only handles one item at a time, so Grade and Improve are paused until it finishes.
+      </div>
+    }
     @if (!items.length) {
       <div class="empty">
         <p>Inbox is empty.</p>
@@ -43,8 +50,12 @@ import { InboxItem } from '../models';
           <th mat-header-cell *matHeaderCellDef>Actions</th>
           <td mat-cell *matCellDef="let row">
             @if (canGrade(row)) {
-              <button mat-button (click)="grade.emit(row.id)">Grade</button>
-              <button mat-button (click)="improve.emit(row.id)">Improve</button>
+              <button mat-button [disabled]="intakeBusy"
+                      [matTooltip]="intakeBusy ? 'Ticket-reviewer is busy; wait for it to finish' : ''"
+                      (click)="grade.emit(row.id)">Grade</button>
+              <button mat-button [disabled]="intakeBusy"
+                      [matTooltip]="intakeBusy ? 'Ticket-reviewer is busy; wait for it to finish' : ''"
+                      (click)="improve.emit(row.id)">Improve</button>
             }
             @if (canApprove(row)) {
               <button mat-button (click)="approve.emit(row.id)">Approve</button>
@@ -71,12 +82,18 @@ import { InboxItem } from '../models';
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 12px; padding: 48px; opacity: 0.85;
     }
+    .busy-note {
+      background: #fff8e1; color: #8a6100; border: 1px solid #ffe0a3;
+      border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-bottom: 12px;
+    }
     td { font-size: 13px; }
   `,
 })
 export class InboxTableComponent {
   @Input() items: InboxItem[] = [];
   @Input() intakeOpen = false;
+  @Input() intakeBusy = false;
+  @Input() intakeBusyTask: string | null = null;
   @Output() importTickets = new EventEmitter<void>();
   @Output() toggleIntake = new EventEmitter<void>();
   @Output() grade = new EventEmitter<string>();

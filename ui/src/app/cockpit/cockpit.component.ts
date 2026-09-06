@@ -45,6 +45,8 @@ import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
           <app-inbox-table
             [items]="ui.state()?.inbox ?? []"
             [intakeOpen]="showIntake"
+            [intakeBusy]="ui.state()?.intake?.busy ?? false"
+            [intakeBusyTask]="ui.state()?.intake?.task ?? null"
             (toggleIntake)="showIntake = !showIntake"
             (importTickets)="openImport()"
             (grade)="runIntake($event, false)"

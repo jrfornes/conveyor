@@ -4,7 +4,7 @@ import os
 import unittest
 
 from harness import ConveyorTest, layout
-from conveyor import adapters, inbox
+from conveyor import adapters, config, inbox
 
 
 class InboxCrud(ConveyorTest):
@@ -79,6 +79,25 @@ class InboxCrud(ConveyorTest):
         self.assertEqual(inbox.read_meta(fx.paths, "cave-setup")["status"], "started")
         self.assertTrue(layout.handoffs(fx.paths.role("coder").new) or
                         layout.handoffs(fx.paths.role("operator").sent))
+
+    def test_intake_busy_lock_is_reported_and_leaves_item_gradable(self):
+        # ticket-reviewer's loop lock is shared across every inbox item: a
+        # second `conveyor intake` while one is in flight must fail with a
+        # clear message and must not strand the item in "grading" forever.
+        fx = self.fx
+        fx.start("--no-smoke")
+        fx.conveyor("stop")
+        fx.conveyor("import", "--source", "manual", "--title", "locked-ticket",
+                    input="# Locked\n\n1. Something.\n")
+        rp = fx.paths.role(config.INTAKE_ROLE)
+        os.makedirs(rp.loop_lock, exist_ok=True)
+        with open(os.path.join(rp.loop_lock, "pid"), "w") as f:
+            f.write(str(os.getpid()))
+        r = fx.conveyor("intake", "locked-ticket", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("busy", r.stdout + r.stderr)
+        self.assertIn(str(os.getpid()), r.stdout + r.stderr)
+        self.assertEqual(inbox.read_meta(fx.paths, "locked-ticket")["status"], "imported")
 
     def test_intake_improve_writes_proposed(self):
         fx = self.fx

@@ -26,11 +26,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, code, obj):
         body = json.dumps(obj).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self._cors()
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Client gave up (nav away, request timeout) before the response
+            # landed. The mutation already ran; there is no one left to tell.
+            pass
 
     def _read_json(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -232,10 +237,13 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(filepath)[0] or "application/octet-stream"
         with open(filepath, "rb") as f:
             data = f.read()
-        self.send_response(200)
-        self.send_header("Content-Type", ctype)
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
 
 def serve(root, host="127.0.0.1", port=8765):
