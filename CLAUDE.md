@@ -57,7 +57,7 @@ Everything is a file or a git object; state is the directory a file sits in.
 - **Handoff = commit SHA + tiny validated file.** Agents write a three-line draft (`to`, `task`, `verdict`) to `./tmp/handoff.txt` and run `handoff.sh`. The validator fills `type`, `id`, `from`, `commit` (10-hex), `task_id`, `created_at`, and the body (full commit message). Permitted `(from,to,verdict)` triples are derived from `conveyor.conf` order, never hardcoded.
 - **Audit gate**: first `handoff.sh` call for a candidate (sha256 of commit+to+task+verdict) exits 2 with `AUDIT_REQUIRED`; identical resubmission passes; any change re-challenges. `audit_count` in the board is written only by `handoff.sh`.
 - **Role loop**: recover `in_process/` first (refuse if >1), dequeue oldest from `new/`, `merge.sh <commit>`, check ceilings, run the agent, then decide purely by counting `outbox/*.handoff` (1 = success, 0 = retry attempt with `--resume`, >1 = park). Delivery sweep moves outbox → recipient `inbox/new` and keeps `sent/`; idempotent via id lookup. `done` triggers merge into main as `operator`.
-- **Ceilings** park to `needs-human/` with a `reason` file: `max-retries`, `max-minutes`, `max-attempts`, `merge-conflict`, `multiple-handoffs`, `no-rules`. `conveyor resume` is the only way out.
+- **Ceilings** park to `needs-human/` with a `reason` file: `max-retries`, `max-minutes`, `max-attempts`, `merge-conflict`, `multiple-handoffs`, `no-rules`, `no-agent`. `conveyor resume` is the only way out.
 - **Locks** are `mkdir` directories with a `pid` file, 30 s timeout, stale-pid recovery. Board writes: lock, rewrite whole file to `.tmp`, rename.
 
 ## Hard rules

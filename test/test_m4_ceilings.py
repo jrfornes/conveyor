@@ -100,6 +100,24 @@ class M4Minutes(ConveyorTest):
         self.assertNotEqual(fx.board()["slow"]["started_at"], "-")
 
 
+class M4NoAgent(ConveyorTest):
+    def test_missing_agent_binary_parks(self):
+        fx = self.fx
+        fx.script("coder", CODER_OK)  # never runs; the binary is unreachable
+        fx.start()
+        fx.conveyor("stop")
+        fx.task("demo")
+        r = fx.loop("coder", {"CONVEYOR_AGENT_BIN": "/nonexistent/conveyor-agent"})
+        self.assertEqual(r.returncode, 0, r.stderr)  # parked, not crashed
+        self.assertIn("E_NO_AGENT", r.stdout)
+        self.assertEqual(fx.parked_reason("demo")[0], "no-agent")
+        self.assertEqual(fx.board()["demo"]["lane"], "needs-human")
+        self.assertTrue(os.path.exists(os.path.join(fx.paths.needs_human, "demo", "item.handoff")))
+        # No agent log was written: the loop never got as far as launching.
+        self.assertEqual([f for f in os.listdir(os.path.join(fx.paths.logs, "coder"))
+                          if f.endswith(".jsonl")], [])
+
+
 class IntakeCeilingsDoNotChangeBelt(ConveyorTest):
     def test_inbox_zero_does_not_rewrite_coder_minutes(self):
         from conveyor import config

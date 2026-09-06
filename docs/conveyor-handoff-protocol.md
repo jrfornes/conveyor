@@ -593,6 +593,8 @@ $CONVEYOR_AGENT_BIN -p --force --model <model> --output-format stream-json [<cli
     > $CONVEYOR_ROOT/.conveyor/logs/<role>/<task>_<id>_a<attempt>.jsonl 2>&1
 ```
 
+Before launching, the loop verifies `$CONVEYOR_AGENT_BIN` is an executable (a bare name is resolved on `PATH`; a path with a separator is taken as-is, resolving against the worktree). If it is not, the loop logs `E_NO_AGENT` and parks with reason `no-agent` — it never attempts a run it cannot start.
+
 The loop records the exit code as the last line of the log (`{"type":"conveyor","exit":<n>}`) and extracts the session id from the first event that carries one. Exit code is informational only; §6.3's outbox check decides.
 
 ### 6.10 Parking

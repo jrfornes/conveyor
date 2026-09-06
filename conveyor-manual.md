@@ -387,7 +387,7 @@ Conveyor treats ceilings as first-class MVP features, not afterthoughts.
   `max-retries`.
 - **Attempt ceiling:** `max_attempts` per role per task; parks when the agent fails to produce
   a valid handoff.
-- **Other park reasons:** `merge-conflict`, `multiple-handoffs`, `no-rules`, `no-task-file`.
+- **Other park reasons:** `merge-conflict`, `multiple-handoffs`, `no-rules`, `no-agent`, `no-task-file`.
 - **`conveyor resume <task>`** moves the parked item back to a role's inbox; counters are
   **never reset** — raise ceilings in config or delete and recreate the task.
 - **Token/cost ceiling** — deferred until Cursor stream-json exposes reliable usage (B.7).
