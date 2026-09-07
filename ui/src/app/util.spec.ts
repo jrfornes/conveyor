@@ -1,4 +1,4 @@
-import { beltRoutes, formatAge, handoffLabel, slugify, tasksInLane } from './util';
+import { beltRoutes, formatAge, handoffLabel, parseImportMessage, slugify, tasksInLane } from './util';
 
 describe('util', () => {
   const tasks = [
@@ -17,7 +17,6 @@ describe('util', () => {
     expect(formatAge(120)).toBe('2m');
     expect(formatAge(3700)).toBe('1h 1m');
   });
-});
 
   it('derives belt routes with no findings edge for one role', () => {
     expect(beltRoutes(['coder'])).toEqual([
@@ -55,5 +54,29 @@ describe('util', () => {
     expect(slugify('Review belt')).toBe('review-belt');
     expect(slugify('  Spec, no gate! ')).toBe('spec-no-gate');
     expect(slugify('!!!')).toBe('');
+  });
+
+  it('parses import CLI output into structured rows', () => {
+    const message = [
+      'imported proj-9  Login timeout on mobile',
+      'imported proj-10  Add dark mode',
+      'failed PROJ-11  404 Issue does not exist',
+      'notice: proj-9 has 1 video/audio attachments that were not downloaded; watch them in Jira: https://example.atlassian.net/browse/PROJ-9',
+    ].join('\n');
+    const summary = parseImportMessage(message);
+    expect(summary.imported).toEqual([
+      { id: 'proj-9', title: 'Login timeout on mobile' },
+      { id: 'proj-10', title: 'Add dark mode' },
+    ]);
+    expect(summary.failed).toEqual([
+      { key: 'PROJ-11', detail: '404 Issue does not exist' },
+    ]);
+    expect(summary.notices.length).toBe(1);
+    expect(summary.notices[0]).toContain('video/audio attachments');
+  });
+
+  it('parses refresh output', () => {
+    const summary = parseImportMessage('refreshed proj-9  Updated title');
+    expect(summary.refreshed).toEqual([{ id: 'proj-9', title: 'Updated title' }]);
   });
 });
