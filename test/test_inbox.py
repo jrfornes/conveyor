@@ -2,12 +2,13 @@
 import contextlib
 import json
 import os
+import subprocess
 import threading
 import unittest
 import urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from harness import ConveyorTest, layout
+from harness import BIN, ConveyorTest, layout
 from conveyor import adapters, attachments, config, inbox
 
 
@@ -775,6 +776,122 @@ class InboxAttachments(ConveyorTest):
                            ".cursor", "rules", "conveyor-role.mdc")
         with open(mdc, encoding="utf-8") as f:
             self.assertIn("tmp/attachments/", f.read())
+
+
+class ApproveWithoutGitIdentity(ConveyorTest):
+    """A repo with no committer identity must refuse cleanly and leave no debris
+    behind: the failed approve used to strand tasks/<task>.md staged, so the next
+    click died with "already exists" instead of retrying (bin/conveyor commit_file).
+    """
+
+    SOURCE = "# Cave\n\n1. Lights work.\n"
+
+    def setUp(self):
+        super().setUp()
+        fx = self.fx
+        fx.start("--no-smoke")
+        fx.conveyor("stop")
+        fx.conveyor("import", "--source", "manual", "--title", "cave-setup",
+                    input=self.SOURCE)
+
+    def blind(self, *args, input=None):
+        """Run the CLI with no identity anywhere: no GIT_* env, no git config."""
+        fx = self.fx
+        fx.git("config", "--unset", "user.email")
+        fx.git("config", "--unset", "user.name")
+        self.addCleanup(fx.git, "config", "user.name", "Test")
+        self.addCleanup(fx.git, "config", "user.email", "test@example.com")
+        env = {k: v for k, v in fx.env.items() if not k.startswith("GIT_")}
+        env["GIT_CONFIG_GLOBAL"] = os.devnull
+        env["GIT_CONFIG_SYSTEM"] = os.devnull
+        return subprocess.run([os.path.join(BIN, "conveyor"), *args], cwd=fx.root, input=input,
+                              capture_output=True, text=True, env=env)
+
+    def test_approve_refuses_with_repair_text_and_no_traceback(self):
+        r = self.blind("inbox", "approve", "cave-setup", "--force")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("conveyor inbox approve: git has no commit identity", r.stderr)
+        self.assertIn('git config --global user.email "you@example.com"', r.stderr)
+
+    def test_failed_approve_leaves_no_file_and_the_next_one_succeeds(self):
+        fx = self.fx
+        self.assertEqual(self.blind("inbox", "approve", "cave-setup", "--force").returncode, 1)
+        self.assertFalse(os.path.exists(os.path.join(fx.root, "tasks", "cave-setup.md")))
+        self.assertEqual(fx.git("status", "--porcelain"), "")
+        self.assertEqual(inbox.read_meta(fx.paths, "cave-setup")["status"], "imported")
+        # The normal fixture env carries GIT_AUTHOR_*/GIT_COMMITTER_*, so the
+        # operator's next click has an identity again: it must go through.
+        fx.conveyor("inbox", "approve", "cave-setup", "--force")
+        self.assertEqual(inbox.read_meta(fx.paths, "cave-setup")["status"], "ready")
+        self.assertIn("Add task cave-setup", fx.git("log", "-1", "--format=%s"))
+        self.assertEqual(fx.git("status", "--porcelain"), "")
+
+    def test_task_refuses_before_writing_a_board_row(self):
+        r = self.blind("task", "cave-setup", input="# Cave\n\n1. Do it.\n")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("conveyor task: git has no commit identity", r.stderr)
+        self.assertIsNone(self.fx.board().get("cave-setup"))
+        self.assertEqual(self.fx.git("diff", "--cached", "--name-only"), "")
+
+    def test_start_refuses_up_front(self):
+        r = self.blind("start", "--no-smoke")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("conveyor start: git has no commit identity", r.stderr)
+
+
+class ApproveResumesLeftovers(ConveyorTest):
+    """An approve killed between the write and the commit leaves tasks/<task>.md
+    uncommitted; re-approving the same text must adopt it, not refuse."""
+
+    SOURCE = "# Cave\n\n1. Lights work.\n"
+
+    def setUp(self):
+        super().setUp()
+        fx = self.fx
+        fx.start("--no-smoke")
+        fx.conveyor("stop")
+        fx.conveyor("import", "--source", "manual", "--title", "cave-setup",
+                    input=self.SOURCE)
+        self.dest = os.path.join(fx.root, "tasks", "cave-setup.md")
+        os.makedirs(os.path.dirname(self.dest), exist_ok=True)
+
+    def write_leftover(self, text):
+        with open(self.dest, "w", encoding="utf-8") as f:
+            f.write(text)
+        self.fx.git("add", "--", "tasks/cave-setup.md")
+
+    def test_identical_uncommitted_leftover_is_adopted(self):
+        fx = self.fx
+        self.write_leftover(self.SOURCE.strip() + "\n")
+        r = fx.conveyor("inbox", "approve", "cave-setup", "--force")
+        self.assertIn("approved cave-setup", r.stdout)
+        self.assertEqual(inbox.read_meta(fx.paths, "cave-setup")["status"], "ready")
+        self.assertEqual(fx.git("status", "--porcelain"), "")
+        self.assertIn("Lights work", fx.git("show", "HEAD:tasks/cave-setup.md"))
+
+    def test_different_uncommitted_file_is_refused_with_a_way_out(self):
+        fx = self.fx
+        self.write_leftover("# Someone else's draft\n")
+        r = fx.conveyor("inbox", "approve", "cave-setup", "--force", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("tasks/cave-setup.md already exists", r.stderr)
+        self.assertIn("uncommitted and differs", r.stderr)
+        self.assertIn("--name <task>", r.stderr)
+        self.assertEqual(inbox.read_meta(fx.paths, "cave-setup")["status"], "imported")
+        r = fx.conveyor("inbox", "approve", "cave-setup", "--name", "cave-lights", "--force")
+        self.assertIn("approved cave-setup", r.stdout)
+        self.assertEqual(inbox.read_meta(fx.paths, "cave-setup")["task_name"], "cave-lights")
+
+    def test_committed_task_file_still_refuses(self):
+        fx = self.fx
+        self.write_leftover("# Real task\n")
+        fx.git("commit", "-q", "-m", "Add task cave-setup", "--", "tasks/cave-setup.md")
+        r = fx.conveyor("inbox", "approve", "cave-setup", "--force", check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("tasks/cave-setup.md already exists", r.stderr)
+        self.assertNotIn("uncommitted", r.stderr)
+        self.assertEqual(inbox.read_meta(fx.paths, "cave-setup")["status"], "imported")
 
 
 if __name__ == "__main__":
