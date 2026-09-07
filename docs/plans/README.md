@@ -31,6 +31,7 @@ plans 3–6 are deliberately not written up front.
 | --- | --- |
 | [0.4.0-rc1](0.4.0-rc1.md) | Intended next tag. Edit Features / Fixes / Maintenance / Out. |
 | [Next chapters](next-chapters.md) | Versioning and work buckets. Next advertised tag is `v0.4.0-rc1`; `v1.0.0` waits on M3. |
+| [Gate review](gate-review.md) | Held `ready`: `git show` next to `tasks/<name>.md`; Approve / Reject-with-findings / Delete. CLI first. Not Stage 5, not B.5. |
 
 ## After `v0.4.0-rc1`
 
