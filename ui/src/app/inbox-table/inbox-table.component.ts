@@ -135,7 +135,7 @@ import {
     .grade-none { background: rgba(0, 0, 0, 0.04); color: rgba(0, 0, 0, 0.45); }
     .grade-unknown { background: rgba(0, 0, 0, 0.06); color: rgba(0, 0, 0, 0.7); }
     .itemlink {
-      color: inherit;
+      color: #1565c0;
       font-weight: 500;
       text-decoration: none;
     }
