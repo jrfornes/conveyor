@@ -1,2 +1,6 @@
 html, body { height: 100%; margin: 0; }
 body { font-family: Roboto, "Helvetica Neue", sans-serif; }
+
+.intake-review-dialog .mat-mdc-dialog-container {
+  max-width: 95vw;
+}

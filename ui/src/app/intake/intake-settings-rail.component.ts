@@ -50,14 +50,14 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
             }
           </mat-select>
         </mat-form-field>
-        <label>
-          Minutes
-          <input type="number" min="0" [(ngModel)]="minutes" (ngModelChange)="configDirty = true" />
-        </label>
-        <label>
-          Attempts
-          <input type="number" min="0" [(ngModel)]="attempts" (ngModelChange)="configDirty = true" />
-        </label>
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="num-field">
+          <mat-label>Minutes</mat-label>
+          <input matInput type="number" min="0" [(ngModel)]="minutes" (ngModelChange)="configDirty = true" />
+        </mat-form-field>
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="num-field">
+          <mat-label>Attempts</mat-label>
+          <input matInput type="number" min="0" [(ngModel)]="attempts" (ngModelChange)="configDirty = true" />
+        </mat-form-field>
         <button mat-stroked-button [disabled]="!configDirty || configBusy" (click)="saveConfig()">
           Save
         </button>
@@ -69,7 +69,9 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
       <mat-tab-group [(selectedIndex)]="tab" animationDuration="0">
         <mat-tab label="Reviewer prompt">
           <div class="pane">
-            <textarea class="md" [(ngModel)]="prompt" (ngModelChange)="promptDirty = true" spellcheck="false"></textarea>
+            <mat-form-field appearance="outline" class="md-field">
+              <textarea matInput rows="14" [(ngModel)]="prompt" (ngModelChange)="promptDirty = true" spellcheck="false"></textarea>
+            </mat-form-field>
             <div class="actions">
               <button mat-flat-button [disabled]="!promptDirty || promptBusy" (click)="savePrompt()">
                 Save prompt
@@ -83,7 +85,9 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
         </mat-tab>
         <mat-tab label="Grading rubric">
           <div class="pane">
-            <textarea class="md" [(ngModel)]="rubric" (ngModelChange)="rubricDirty = true" spellcheck="false"></textarea>
+            <mat-form-field appearance="outline" class="md-field">
+              <textarea matInput rows="14" [(ngModel)]="rubric" (ngModelChange)="rubricDirty = true" spellcheck="false"></textarea>
+            </mat-form-field>
             <div class="actions">
               <button mat-flat-button [disabled]="!rubricDirty || rubricBusy" (click)="saveRubric()">
                 Save rubric
@@ -151,25 +155,20 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
     .tag { margin: 2px 0 0; font-size: 12px; color: rgba(0,0,0,0.6); }
     .path { font-size: 11px; color: rgba(0,0,0,0.5); }
     .fields {
-      display: grid; grid-template-columns: minmax(160px, 1fr) 72px 72px auto;
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) minmax(72px, 88px) minmax(72px, 88px) auto;
       gap: 8px; align-items: end;
     }
     .model-field { min-width: 0; }
+    .num-field { width: 100%; }
     .mid { font-family: ui-monospace, monospace; }
     .mlabel { margin-left: 8px; opacity: 0.65; font-size: 12px; }
-    .fields label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: rgba(0,0,0,0.55); }
-    .fields input {
-      font: inherit; font-size: 13px; padding: 6px 8px;
-      border: 1px solid rgba(0,0,0,0.16); border-radius: 6px;
-    }
     .pane { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; min-height: 240px; }
     .pane.jira { min-height: 0; }
-    .md {
-      width: 100%; min-height: 240px; flex: 1;
+    .md-field { width: 100%; flex: 1; }
+    .md-field textarea {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 13px; line-height: 1.45;
-      border: 1px solid rgba(0,0,0,0.16); border-radius: 6px; padding: 10px;
-      resize: vertical; box-sizing: border-box;
     }
     .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .hint { font-size: 12px; color: rgba(0,0,0,0.6); margin: 0; }

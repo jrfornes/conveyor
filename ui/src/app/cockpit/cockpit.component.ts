@@ -259,7 +259,12 @@ export class CockpitComponent {
   openIntakeReview(id: string): void {
     this.api.inboxItem(id).subscribe({
       next: (item) => {
-        const ref = this.dialog.open(IntakeReviewDialogComponent, { width: '900px', data: item });
+        const ref = this.dialog.open(IntakeReviewDialogComponent, {
+          width: '900px',
+          maxWidth: '95vw',
+          panelClass: 'intake-review-dialog',
+          data: item,
+        });
         ref.afterClosed().subscribe((v) => {
           if (!v) return;
           if (v.action === 'skip') this.mutate('inbox-skip', { id });

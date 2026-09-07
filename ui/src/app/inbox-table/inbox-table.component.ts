@@ -30,6 +30,10 @@ import { MatTooltipModule } from '@angular/material/tooltip';
       </div>
     } @else {
       <table mat-table [dataSource]="items" class="inbox">
+        <ng-container matColumnDef="id">
+          <th mat-header-cell *matHeaderCellDef>ID</th>
+          <td mat-cell *matCellDef="let row" class="mono" [title]="row.id">{{ displayId(row) }}</td>
+        </ng-container>
         <ng-container matColumnDef="title">
           <th mat-header-cell *matHeaderCellDef>Title</th>
           <td mat-cell *matCellDef="let row">{{ row.title }}</td>
@@ -93,6 +97,10 @@ import { MatTooltipModule } from '@angular/material/tooltip';
       border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-bottom: 12px;
     }
     td { font-size: 13px; }
+    .mono {
+      font-family: "Roboto Mono", ui-monospace, monospace;
+      font-size: 12px;
+    }
   `,
 })
 export class InboxTableComponent {
@@ -109,7 +117,12 @@ export class InboxTableComponent {
   @Output() approve = new EventEmitter<string>();
   @Output() start = new EventEmitter<InboxItem>();
   @Output() skip = new EventEmitter<string>();
-  cols = ['title', 'source', 'grade', 'status', 'actions'];
+  cols = ['id', 'title', 'source', 'grade', 'status', 'actions'];
+
+  displayId(row: InboxItem): string {
+    const ext = row.external_id?.trim();
+    return ext && ext !== '-' ? ext : row.id;
+  }
 
   canRefresh(row: InboxItem): boolean {
     return row.source === 'jira' && row.status === 'imported';

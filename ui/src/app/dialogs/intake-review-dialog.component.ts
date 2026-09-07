@@ -59,11 +59,31 @@ export interface IntakeReviewResult {
     </mat-dialog-actions>
   `,
   styles: `
-    .full { width: 100%; }
+    .full {
+      width: 100%;
+      box-sizing: border-box;
+    }
     .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .cols > div {
+      min-width: 0;
+      overflow: hidden;
+    }
     h3 { margin: 8px 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
-    .mono { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; max-height: 240px; overflow: auto; background: #f5f5f5; padding: 8px; }
-    mat-dialog-content { min-width: 720px; max-width: 900px; }
+    .mono {
+      font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap;
+      max-height: 240px; overflow: auto; background: #f5f5f5; padding: 8px;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      box-sizing: border-box;
+    }
+    mat-dialog-content {
+      min-width: 0;
+      overflow-x: hidden;
+    }
+    @media (max-width: 720px) {
+      .cols { grid-template-columns: 1fr; }
+    }
   `,
 })
 export class IntakeReviewDialogComponent {
