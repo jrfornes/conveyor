@@ -8,6 +8,7 @@ conveyor init [<path>] | uninstall [--yes] [--bundle]
            | import --refresh <id> | import --replace <id>
            | intake <id> [--improve] | intake config | intake jira
            | inbox approve <id> [--name <task>] | inbox skip <id>
+           | inbox attachments <id> [--select ids|none]
            | start-task <name> | approve <id> | reject <id>
            | role list | show <name> | new <name> [--from <other>] | delete <name>
                     | skills <name> [--set a,b,c]
@@ -30,7 +31,7 @@ if sys.version_info < (3, 10):
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
-from conveyor import (adapters, agent as agentlib, board, config, gates, handoff, inbox,  # noqa: E402
+from conveyor import (adapters, agent as agentlib, attachments, board, config, gates, handoff, inbox,  # noqa: E402
                       intake as intakelib, jira as jiralib, layout, presets, queue,
                       roles as roleslib, util)
 
@@ -82,6 +83,11 @@ def ensure_worktree(root, paths, role_name):
         rubric = intakelib.read_rubric(root)
         if rubric.strip():
             rules += f"# Grading rubric ({intakelib.RUBRIC_REL})\n\n" + rubric.rstrip("\n") + "\n\n"
+        rules += (
+            "Attachments for this ticket, if the operator selected any, are files under "
+            "`tmp/attachments/`. Look at them when grading or improving. Video and audio "
+            "are never downloaded; watch those in Jira.\n\n"
+        )
         role_md = intakelib.prompt_path(root)
     else:
         role_md = os.path.join(root, "roles", f"{role_name}.md")
@@ -681,7 +687,7 @@ def _positionals(args):
     skip = set()
     for flag in ("--name", "--title", "--source", "--comments",
                  "--roles", "--gate", "--description", "--set", "--from",
-                 "--refresh", "--replace"):
+                 "--refresh", "--replace", "--select"):
         if flag in args:
             i = args.index(flag)
             skip.add(i)
@@ -709,6 +715,16 @@ def _empty_jira_notice(iid):
           f"grade skipped until you add a body.")
 
 
+def _attachment_notices(iid, rows, url, spec_empty):
+    n_av = attachments.video_audio_count(rows)
+    if n_av:
+        watch = url if url and url != "-" else "Jira"
+        print(f"notice: {iid} has {n_av} video/audio attachments that were not "
+              f"downloaded; watch them in Jira: {watch}")
+    if spec_empty and not rows:
+        _empty_jira_notice(iid)
+
+
 def _import_refresh(paths, cfg, iid):
     try:
         meta = inbox.read_meta(paths, iid)
@@ -732,11 +748,13 @@ def _import_refresh(paths, cfg, iid):
         line = f"failed {t.get('external_id') or external_id}  {err['status']} {err['message']}"
         print(line)
         util.die(line)
-    inbox.write_file(paths, iid, "source.md", t.get("body") or "")
+    url = t.get("url") or meta.get("url") or ""
+    rows = attachments.install(
+        paths, iid, t.get("attachments") or [], t.get("body") or "", url,
+        keep_selection=True)
     inbox.update_meta(paths, iid, title=t["title"], url=t.get("url") or "-")
     print(f"refreshed {iid}  {t['title']}")
-    if not (t.get("body") or "").strip():
-        _empty_jira_notice(iid)
+    _attachment_notices(iid, rows, url, not (t.get("body") or "").strip())
 
 
 def _import_replace(paths, iid, raw):
@@ -746,6 +764,7 @@ def _import_replace(paths, iid, raw):
         util.die(f"conveyor import: {e}")
     _require_imported(meta, iid, "replace")
     inbox.write_file(paths, iid, "source.md", raw)
+    attachments.rewrite_footer(paths, iid)
     print(f"replaced {iid}")
 
 
@@ -784,6 +803,8 @@ def cmd_import(args):
             print(f"failed {key}  {err['status']} {err['message']}")
             continue
         preferred = (t.get("external_id") or "").lower().replace("_", "-")
+        spec = t.get("body") or ""
+        rows = attachments.rows_from(t.get("attachments") or [])
         iid = inbox.create(paths, {
             "id": preferred,
             "source": t["source"],
@@ -791,14 +812,16 @@ def cmd_import(args):
             "url": t.get("url") or "-",
             "external_id": t.get("external_id") or "-",
             "status": "imported",
-        }, t.get("body") or "")
+        }, attachments.apply_footer(spec, rows, t.get("url") or ""))
+        if rows:
+            attachments.write(paths, iid, rows)
         created.append(iid)
         print(f"imported {iid}  {t['title']}")
         if source == "jira" and preferred and iid != preferred and inbox.exists(paths, preferred):
             print(f"notice: {preferred} exists; created {iid}. "
                   f"To update the original: conveyor import --refresh {preferred}")
-        if source == "jira" and not (t.get("body") or "").strip():
-            _empty_jira_notice(iid)
+        if source == "jira":
+            _attachment_notices(iid, rows, t.get("url") or "", not spec.strip())
     if not created:
         util.die("conveyor import: nothing imported")
 
@@ -903,6 +926,10 @@ def cmd_intake(args):
         util.git(["reset", "--hard", util.git(["rev-parse", "HEAD"], root)], wt)
         src = inbox.read_file(paths, iid, "source.md")
         util.atomic_write(os.path.join(wt, "tmp", "source.md"), src if src.endswith("\n") else src + "\n")
+        att_dest = os.path.join(wt, "tmp", "attachments")
+        if os.path.isdir(att_dest):
+            shutil.rmtree(att_dest)
+        attachments.download_selected(paths, cfg, iid, att_dest)
         rp = paths.role(config.INTAKE_ROLE)
         if os.path.exists(rp.stop):
             os.remove(rp.stop)
@@ -932,6 +959,9 @@ def cmd_intake(args):
         os.makedirs(os.path.join(paths.logs, config.INTAKE_ROLE), exist_ok=True)
         r = subprocess.run([os.path.join(BIN, "role-loop.sh"), "--once"], cwd=root, env=env,
                            capture_output=True, text=True)
+    except attachments.AttachmentsError as e:
+        inbox.update_meta(paths, iid, status="imported")
+        util.die(f"conveyor intake: {e}")
     except Exception:
         # Never leave the item stuck in grading/improving: whatever failed,
         # the operator must be able to see and re-click it.
@@ -953,9 +983,45 @@ def cmd_intake(args):
     print((r.stdout or "").strip() or f"intake {iid} finished")
 
 
+INBOX_USAGE = (
+    "usage: conveyor inbox approve <id> [--name <task>] | conveyor inbox skip <id>\n"
+    "       conveyor inbox attachments <id> [--select ids|none]"
+)
+
+
+def cmd_inbox_attachments(args):
+    names = _positionals(args)
+    if len(names) != 1:
+        util.die(INBOX_USAGE)
+    iid = names[0]
+    _, cfg, paths = setup()
+    paths.ensure(cfg)
+    if not inbox.exists(paths, iid):
+        util.die(f"conveyor inbox: no inbox item {iid}")
+    has_select = "--select" in args
+    select_raw = _flag(args, "--select")
+    if has_select and select_raw is None:
+        util.die(INBOX_USAGE)
+    try:
+        if has_select:
+            if select_raw.strip().lower() == "none":
+                ids = []
+            else:
+                ids = [s.strip() for s in select_raw.split(",") if s.strip()]
+            rows = attachments.select(paths, iid, ids)
+        else:
+            rows = attachments.read(paths, iid)
+    except attachments.AttachmentsError as e:
+        util.die(f"conveyor inbox: {e}")
+    for row in rows:
+        print(attachments.format_list_line(row))
+
+
 def cmd_inbox(args):
-    if not args or args[0] not in ("approve", "skip"):
-        util.die("usage: conveyor inbox approve <id> [--name <task>] | conveyor inbox skip <id>")
+    if not args or args[0] not in ("approve", "skip", "attachments"):
+        util.die(INBOX_USAGE)
+    if args[0] == "attachments":
+        return cmd_inbox_attachments(args[1:])
     root, cfg, paths = setup()
     paths.ensure(cfg)
     if args[0] == "skip":
@@ -977,7 +1043,7 @@ def cmd_inbox(args):
         item = inbox.item(paths, iid)
     except inbox.InboxError as e:
         util.die(f"conveyor inbox: {e}")
-    text = (item["proposed_md"] or item["source_md"]).strip()
+    text = (item["proposed_md"] or attachments.strip_footer(item["source_md"])).strip()
     if not text:
         util.die("conveyor inbox approve: no proposed-task.md or source.md to write")
     rel = f"tasks/{task}.md"

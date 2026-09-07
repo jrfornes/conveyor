@@ -41,3 +41,4 @@ Numbered requirements. Expected vs actual. Non-goals. Test plan. No implementati
 - Sends: `to: operator`, `verdict: ready`.
 - Receives: one inbox item (the `task` header is the inbox id).
 - You have no `tasks/<id>.md`. The original ticket is in the prompt and in `tmp/source.md` if present.
+- When `tmp/attachments/` is present, look at those files (images, PDFs, office, text). Video and audio are never downloaded; watch those in Jira.

@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(REPO, "test"))
 from harness import Fixture  # noqa: E402
 from ui.server.httpd import Handler, ThreadingHTTPServer  # noqa: E402
 from conveyor import config, inbox, jira as jiralib  # noqa: E402
-from test_inbox import _jira_mock_server  # noqa: E402
+from test_inbox import _att, _issue, _jira_mock_server  # noqa: E402
 
 
 def get(url):
@@ -516,6 +516,46 @@ class UiApiTest(unittest.TestCase):
         self.assertEqual(code, 400, body)
         self.assertIn("imported", body["error"])
         self.assertEqual(inbox.read_file(self.fx.paths, iid, "source.md"), "Do not touch.\n")
+
+    def test_attachments_select_and_get_item_list(self):
+        payload = _issue("Shot", "See screenshot", [
+            _att("10001", "repro.png", "image/png", 12),
+            _att("10002", "walkthrough.mp4", "video/mp4", 99),
+        ])
+        server, base = _jira_mock_server({"PROJ-9": (200, payload)})
+        jiralib.write(self.fx.paths, base, "dev@ex.com", "tok-secret")
+        try:
+            code, imported = post(f"{self.base}/api/import", {
+                "source": "jira", "title": "", "body": "PROJ-9\n",
+            })
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(code, 200, imported)
+        self.assertNotIn("tok-secret", json.dumps(imported))
+        item = get(f"{self.base}/api/inbox/proj-9")
+        ids = [a["id"] for a in item.get("attachments") or []]
+        self.assertEqual(ids, ["10001", "10002"])
+        png = next(a for a in item["attachments"] if a["id"] == "10001")
+        self.assertTrue(png["selected"])
+        vid = next(a for a in item["attachments"] if a["id"] == "10002")
+        self.assertFalse(vid["downloadable"])
+        state = get(f"{self.base}/api/state")
+        row = next(i for i in state["inbox"] if i["id"] == "proj-9")
+        self.assertEqual(row["attachment_count"], 2)
+        self.assertEqual(row["video_count"], 1)
+        self.assertEqual(row["selected_count"], 1)
+        code, body = post(f"{self.base}/api/inbox/attachments", {
+            "id": "proj-9", "select": "none",
+        })
+        self.assertEqual(code, 200, body)
+        item = get(f"{self.base}/api/inbox/proj-9")
+        self.assertFalse(any(a["selected"] for a in item["attachments"]))
+        code, body = post(f"{self.base}/api/inbox/attachments", {
+            "id": "proj-9", "select": ["10002"],
+        })
+        self.assertEqual(code, 400, body)
+        self.assertIn("cannot select", body["error"])
 
 
 if __name__ == "__main__":

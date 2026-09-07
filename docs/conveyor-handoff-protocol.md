@@ -130,10 +130,12 @@ Vendor-agnostic intake. Adapters fill `source.md` and metadata; they MUST NOT wr
 ```
 .conveyor/inbox/<id>/
   meta.txt              source, title, url, external_id, status, grade, created_at, task_name
-  source.md             original ticket text
+  source.md             original ticket text (Conveyor owns a trailing ## Conveyor attachments)
   grade.md              written from the ticket-reviewer commit
   proposed-task.md      written from the ticket-reviewer commit on Improve
   comments.txt          human reject notes for an Improve retry
+  attachments.json      Jira attachment manifest (no token); operator selection
+  attachments/          downloaded bytes for selected files (id-prefixed names)
 ```
 
 `status`: `imported` | `grading` | `graded` | `improving` | `awaiting-approval` | `ready` | `started` | `skipped`.

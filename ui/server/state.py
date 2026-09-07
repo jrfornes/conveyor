@@ -130,6 +130,9 @@ def build_state(root):
                 "task_name": it.get("task_name", "-"),
                 "has_grade": it.get("has_grade", False),
                 "has_proposed": it.get("has_proposed", False),
+                "attachment_count": it.get("attachment_count", 0),
+                "video_count": it.get("video_count", 0),
+                "selected_count": it.get("selected_count", 0),
             })
         for a in queue.pending_approvals(paths):
             h = a["headers"]

@@ -1,4 +1,5 @@
 """Inbox CRUD, adapters, intake one-shot, approve writes tasks/ without enqueue."""
+import contextlib
 import json
 import os
 import threading
@@ -7,13 +8,42 @@ import urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from harness import ConveyorTest, layout
-from conveyor import adapters, config, inbox
+from conveyor import adapters, attachments, config, inbox
 
 
 class _JiraMockHandler(BaseHTTPRequestHandler):
     routes = {}
+    attachments = {}
+    captured = []
 
     def do_GET(self):
+        self.captured.append({
+            "path": self.path,
+            "auth": self.headers.get("Authorization"),
+            "host": self.headers.get("Host"),
+        })
+        att = None
+        if "/attachment/content/" in self.path:
+            aid = self.path.rsplit("/attachment/content/", 1)[-1].split("?", 1)[0]
+            att = self.attachments.get(aid)
+        if att is not None:
+            status = att[0]
+            body = att[1] if len(att) > 1 else b""
+            extra = att[2] if len(att) > 2 else {}
+            self.send_response(status)
+            for k, v in extra.items():
+                self.send_header(k, v)
+            if status == 200:
+                raw = body if isinstance(body, bytes) else (body or b"")
+                if isinstance(raw, str):
+                    raw = raw.encode()
+                self.send_header("Content-Type", extra.get("Content-Type", "application/octet-stream"))
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+            self.end_headers()
+            return
         for key, spec in self.routes.items():
             if f"/issue/{key}" in self.path:
                 status, body = spec
@@ -30,12 +60,18 @@ class _JiraMockHandler(BaseHTTPRequestHandler):
         pass
 
 
-def _jira_mock_server(routes):
-    handler = type("Handler", (_JiraMockHandler,), {"routes": routes})
+def _jira_mock_server(routes, attachments=None):
+    captured = []
+    handler = type("Handler", (_JiraMockHandler,), {
+        "routes": routes,
+        "attachments": attachments or {},
+        "captured": captured,
+    })
     server = HTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base = f"http://127.0.0.1:{server.server_address[1]}"
+    server.captured = captured  # type: ignore[attr-defined]
     return server, base
 
 
@@ -494,6 +530,251 @@ class InboxCrud(ConveyorTest):
         item = inbox.item(fx.paths, "rewrite-me")
         self.assertEqual(item["status"], "awaiting-approval")
         self.assertIn("Numbered requirement", item["proposed_md"])
+
+
+PNG12 = b"\x89PNG\r\n\x1a\nxxxx"  # 12 bytes
+
+
+def _att(aid, filename, mime, size, base=None):
+    row = {"id": str(aid), "filename": filename, "mimeType": mime, "size": size}
+    if base:
+        row["content"] = f"{base}/rest/api/3/attachment/content/{aid}"
+    return row
+
+
+def _issue(summary, description, attachment=None, extra_fields=None, names=None):
+    fields = {"summary": summary, "description": description}
+    if attachment is not None:
+        fields["attachment"] = attachment
+    if extra_fields:
+        fields.update(extra_fields)
+    payload = {"fields": fields}
+    if names:
+        payload["names"] = names
+    return json.dumps(payload)
+
+
+class InboxAttachments(ConveyorTest):
+    def test_manifest_from_fields_and_adf_deduped(self):
+        from conveyor import jira as jiralib
+
+        adf = {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "See shot"}]},
+                {"type": "mediaSingle", "content": [
+                    {"type": "media", "attrs": {"id": "10001", "type": "file"}},
+                ]},
+                {"type": "mediaSingle", "content": [
+                    {"type": "media", "attrs": {"id": "10099", "type": "file"}},
+                ]},
+            ],
+        }
+        custom_adf = {
+            "type": "doc",
+            "content": [{"type": "mediaSingle", "content": [
+                {"type": "media", "attrs": {"id": "10003", "type": "file"}},
+            ]}],
+        }
+
+        def http_get(url, headers):
+            return json.dumps({
+                "names": {"customfield_10010": "Acceptance Criteria"},
+                "fields": {
+                    "summary": "Shot",
+                    "description": adf,
+                    "attachment": [
+                        _att("10001", "repro.png", "image/png", 12),
+                        _att("10002", "walkthrough.mp4", "video/mp4", 99),
+                        _att("10004", "bundle.zip", "application/zip", 50),
+                    ],
+                    "customfield_10010": custom_adf,
+                },
+            })
+
+        jiralib.write(self.fx.paths, "https://ex.atlassian.net", "dev@ex.com", "tok")
+        items = adapters.fetch("jira", "PROJ-9", cfg=config.load(self.fx.root),
+                               http_get=http_get, paths=self.fx.paths)
+        ids = [a["id"] for a in items[0]["attachments"]]
+        self.assertEqual(ids, ["10001", "10002", "10004", "10099", "10003"])
+        self.assertNotIn("atlassian.net/rest/api/3/attachment", items[0]["body"])
+
+    def test_import_default_select_video_notice_zip_blocked(self):
+        fx = self.fx
+        from conveyor import jira as jiralib
+        fx.start("--no-smoke")
+        fx.conveyor("stop")
+        body = _issue("Shot", "See screenshot", [
+            _att("10001", "repro.png", "image/png", 12),
+            _att("10002", "walkthrough.mp4", "video/mp4", 8000),
+            _att("10004", "bundle.zip", "application/zip", 50),
+            _att("10005", "huge.png", "image/png", attachments.MAX_BYTES + 1),
+        ])
+        server, base = _jira_mock_server({"PROJ-9": (200, body)})
+        jiralib.write(fx.paths, base, "dev@ex.com", "tok")
+        try:
+            r = fx.conveyor("import", "--source", "jira", input="PROJ-9\n")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertIn("imported proj-9", r.stdout)
+        self.assertIn("notice: proj-9 has 1 video/audio attachments that were not downloaded",
+                      r.stdout)
+        self.assertIn("/browse/PROJ-9", r.stdout)
+        src = inbox.read_file(fx.paths, "proj-9", "source.md")
+        self.assertIn("## Conveyor attachments", src)
+        self.assertIn("`repro.png` (image, selected)", src)
+        self.assertIn("`walkthrough.mp4` (video, not downloaded", src)
+        listed = fx.conveyor("inbox", "attachments", "proj-9")
+        self.assertIn("10001  selected  image  12  repro.png", listed.stdout)
+        self.assertIn("10002  skip-video  video", listed.stdout)
+        self.assertIn("10004  skip-archive  archive", listed.stdout)
+        self.assertIn("10005  skip-oversize  image", listed.stdout)
+        refuse = fx.conveyor("inbox", "attachments", "proj-9", "--select", "10002",
+                             check=False)
+        self.assertNotEqual(refuse.returncode, 0)
+        self.assertIn("cannot select 10002", refuse.stdout + refuse.stderr)
+        refuse = fx.conveyor("inbox", "attachments", "proj-9", "--select", "10004",
+                             check=False)
+        self.assertNotEqual(refuse.returncode, 0)
+
+    def test_empty_description_with_attachments_no_skip_notice(self):
+        fx = self.fx
+        from conveyor import jira as jiralib
+        fx.start("--no-smoke")
+        fx.conveyor("stop")
+        body = _issue("Blank", "", [_att("10001", "repro.png", "image/png", 12)])
+        server, base = _jira_mock_server({"PROJ-9": (200, body)})
+        jiralib.write(fx.paths, base, "dev@ex.com", "tok")
+        try:
+            r = fx.conveyor("import", "--source", "jira", input="PROJ-9\n")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertIn("imported proj-9", r.stdout)
+        self.assertNotIn("empty Jira description", r.stdout)
+        src = inbox.read_file(fx.paths, "proj-9", "source.md")
+        self.assertIn("## Conveyor attachments", src)
+        self.assertIn("`repro.png`", src)
+
+    def test_empty_description_no_attachments_notice_unchanged(self):
+        fx = self.fx
+        from conveyor import jira as jiralib
+        fx.start("--no-smoke")
+        fx.conveyor("stop")
+        body = _issue("Blank", "", [])
+        server, base = _jira_mock_server({"PROJ-9": (200, body)})
+        jiralib.write(fx.paths, base, "dev@ex.com", "tok")
+        try:
+            r = fx.conveyor("import", "--source", "jira", input="PROJ-9\n")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertIn("notice: proj-9 has an empty Jira description", r.stdout)
+        self.assertEqual(inbox.read_file(fx.paths, "proj-9", "source.md").strip(), "")
+
+    def test_refresh_keeps_selection_drops_vanished(self):
+        fx = self.fx
+        from conveyor import jira as jiralib
+        fx.start("--no-smoke")
+        fx.conveyor("stop")
+        first = _issue("Old", "Old body", [
+            _att("10001", "repro.png", "image/png", 12),
+            _att("10002", "other.png", "image/png", 12),
+        ])
+        server, base = _jira_mock_server({"PROJ-9": (200, first)})
+        jiralib.write(fx.paths, base, "dev@ex.com", "tok")
+        try:
+            fx.conveyor("import", "--source", "jira", input="PROJ-9\n")
+            fx.conveyor("inbox", "attachments", "proj-9", "--select", "10001")
+            server.shutdown()
+            server.server_close()
+            second = _issue("New", "New body from Jira", [
+                _att("10001", "repro.png", "image/png", 12),
+                _att("10003", "fresh.png", "image/png", 12),
+            ])
+            server, base = _jira_mock_server({"PROJ-9": (200, second)})
+            jiralib.write(fx.paths, base, "dev@ex.com", "tok")
+            r = fx.conveyor("import", "--refresh", "proj-9")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertIn("refreshed proj-9", r.stdout)
+        listed = fx.conveyor("inbox", "attachments", "proj-9").stdout
+        self.assertIn("10001  selected", listed)
+        self.assertIn("10003  selected", listed)
+        self.assertNotIn("10002", listed)
+        src = inbox.read_file(fx.paths, "proj-9", "source.md")
+        self.assertIn("New body from Jira", src)
+        self.assertIn("## Conveyor attachments", src)
+
+    def test_select_rewrites_footer_and_intake_download_failure_stays_imported(self):
+        fx = self.fx
+        from conveyor import jira as jiralib
+        fx.start("--no-smoke")
+        fx.conveyor("stop")
+        body = _issue("Shot", "See screenshot", [
+            _att("10001", "repro.png", "image/png", 12),
+            _att("10006", "notes.pdf", "application/pdf", 20),
+        ])
+        server, base = _jira_mock_server({"PROJ-9": (200, body)})
+        jiralib.write(fx.paths, base, "dev@ex.com", "tok")
+        try:
+            fx.conveyor("import", "--source", "jira", input="PROJ-9\n")
+            r = fx.conveyor("inbox", "attachments", "proj-9", "--select", "10006")
+            self.assertIn("10006  selected  other  20  notes.pdf", r.stdout)
+            self.assertIn("10001  off  image", r.stdout)
+            src = inbox.read_file(fx.paths, "proj-9", "source.md")
+            self.assertIn("`notes.pdf` (other, selected)", src)
+            self.assertIn("`repro.png` (image, not selected)", src)
+            server.shutdown()
+            server.server_close()
+            r = fx.conveyor("intake", "proj-9", check=False)
+        finally:
+            with contextlib.suppress(Exception):
+                server.shutdown()
+                server.server_close()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("download", (r.stdout + r.stderr).lower())
+        self.assertEqual(inbox.read_meta(fx.paths, "proj-9")["status"], "imported")
+
+    def test_intake_copies_selected_into_worktree(self):
+        fx = self.fx
+        from conveyor import jira as jiralib
+        fx.script("ticket-reviewer",
+                  'write grade.md "Grade: Ready\\n\\n1. none\\n"\n'
+                  'commit "Grade $TASK"\n'
+                  "draft operator $TASK ready\n"
+                  "handoff\n"
+                  "handoff\n")
+        fx.start("--no-smoke")
+        fx.conveyor("stop")
+        body = _issue("Shot", "See screenshot", [
+            _att("10001", "repro.png", "image/png", len(PNG12)),
+        ])
+        server, base = _jira_mock_server(
+            {"PROJ-9": (200, body)},
+            attachments={"10001": (200, PNG12)},
+        )
+        jiralib.write(fx.paths, base, "dev@ex.com", "tok")
+        try:
+            fx.conveyor("import", "--source", "jira", input="PROJ-9\n")
+            r = fx.conveyor("intake", "proj-9")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        blob = os.path.join(fx.paths.inbox, "proj-9", "attachments", "10001-repro.png")
+        self.assertTrue(os.path.isfile(blob))
+        with open(blob, "rb") as f:
+            self.assertEqual(f.read(), PNG12)
+        wt_blob = os.path.join(fx.paths.worktree(config.INTAKE_ROLE),
+                               "tmp", "attachments", "10001-repro.png")
+        self.assertTrue(os.path.isfile(wt_blob))
+        mdc = os.path.join(fx.paths.worktree(config.INTAKE_ROLE),
+                           ".cursor", "rules", "conveyor-role.mdc")
+        with open(mdc, encoding="utf-8") as f:
+            self.assertIn("tmp/attachments/", f.read())
 
 
 if __name__ == "__main__":

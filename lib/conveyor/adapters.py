@@ -7,6 +7,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 JIRA_KEY = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
 # Locked allowlist for customfield_* display names (expand=names). See bin/README.md.
@@ -112,8 +113,10 @@ def _adf_text(node):
         return attrs.get("shortName") or node.get("text") or attrs.get("text") or ""
     if ntype == "status":
         return attrs.get("text") or ""
-    if ntype in ("inlineCard", "blockCard", "media", "mediaSingle"):
+    if ntype in ("inlineCard", "blockCard"):
         return attrs.get("url") or _adf_join(content, "")
+    if ntype in ("media", "mediaSingle"):
+        return _adf_join(content, "")
     if ntype == "rule":
         return "---"
     if ntype == "heading":
@@ -236,6 +239,83 @@ def _jira_metadata(key, fields):
     return "\n".join(lines)
 
 
+def _jira_size(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _adf_media_ids(node, out=None):
+    """Attachment ids from ADF media / mediaSingle nodes, de-duped, walk order."""
+    if out is None:
+        out = []
+    if isinstance(node, list):
+        for child in node:
+            _adf_media_ids(child, out)
+        return out
+    if not isinstance(node, dict):
+        return out
+    ntype = node.get("type") or ""
+    attrs = node.get("attrs") or {}
+    if ntype == "media":
+        mid = attrs.get("id")
+        mtype = attrs.get("type") or "file"
+        if mid and mtype == "file" and str(mid) not in out:
+            out.append(str(mid))
+    for child in node.get("content") or []:
+        _adf_media_ids(child, out)
+    return out
+
+
+def _origin_content_url(base, aid, given=""):
+    if given:
+        parts, base_parts = urlsplit(given), urlsplit(base)
+        if (parts.scheme, parts.netloc) == (base_parts.scheme, base_parts.netloc):
+            return given
+    return f"{base}/rest/api/3/attachment/content/{aid}"
+
+
+def _jira_attachments(base, fields, names=None):
+    """Union of fields.attachment and ADF media ids (description + allowlisted custom)."""
+    seen = {}
+    order = []
+    for a in fields.get("attachment") or []:
+        if not isinstance(a, dict) or not a.get("id"):
+            continue
+        aid = str(a["id"])
+        if aid in seen:
+            continue
+        seen[aid] = {
+            "id": aid,
+            "filename": a.get("filename") or aid,
+            "mime": a.get("mimeType") or "",
+            "size": _jira_size(a.get("size")),
+            "content_url": _origin_content_url(base, aid, a.get("content") or ""),
+        }
+        order.append(aid)
+    media_docs = [fields.get("description")]
+    for fid, value in fields.items():
+        if not str(fid).startswith("customfield_"):
+            continue
+        label = (names or {}).get(fid) or ""
+        if JIRA_CUSTOM_RE.search(label):
+            media_docs.append(value)
+    for doc in media_docs:
+        for mid in _adf_media_ids(doc):
+            if mid in seen:
+                continue
+            seen[mid] = {
+                "id": mid,
+                "filename": mid,
+                "mime": "",
+                "size": 0,
+                "content_url": _origin_content_url(base, mid),
+            }
+            order.append(mid)
+    return [seen[i] for i in order]
+
+
 def _jira_body(key, fields, names=None):
     desc = _jira_description(fields)
     custom = _jira_custom_sections(fields, names)
@@ -289,12 +369,14 @@ def fetch_jira(raw, cfg=None, http_get=None, paths=None):
                 "Accept": "application/json",
             }))
             fields = data.get("fields") or {}
+            names = data.get("names") or {}
             items.append({
                 "title": fields.get("summary") or key,
-                "body": _jira_body(key, fields, data.get("names") or {}),
+                "body": _jira_body(key, fields, names),
                 "url": url,
                 "external_id": key,
                 "source": "jira",
+                "attachments": _jira_attachments(base, fields, names),
             })
         except urllib.error.HTTPError as e:
             items.append({

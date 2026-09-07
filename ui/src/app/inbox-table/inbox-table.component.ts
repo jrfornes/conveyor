@@ -36,7 +36,12 @@ import { MatTooltipModule } from '@angular/material/tooltip';
         </ng-container>
         <ng-container matColumnDef="title">
           <th mat-header-cell *matHeaderCellDef>Title</th>
-          <td mat-cell *matCellDef="let row">{{ row.title }}</td>
+          <td mat-cell *matCellDef="let row">
+            {{ row.title }}
+            @if (row.attachment_count) {
+              <span class="badge" [title]="badgeTitle(row)">{{ badge(row) }}</span>
+            }
+          </td>
         </ng-container>
         <ng-container matColumnDef="source">
           <th mat-header-cell *matHeaderCellDef>Source</th>
@@ -58,6 +63,9 @@ import { MatTooltipModule } from '@angular/material/tooltip';
             }
             @if (canEditSource(row)) {
               <button mat-button (click)="editSource.emit(row.id)">Edit source</button>
+            }
+            @if (canAttachments(row)) {
+              <button mat-button (click)="attachments.emit(row.id)">Attachments</button>
             }
             @if (canGrade(row)) {
               <button mat-button [disabled]="intakeBusy"
@@ -97,6 +105,15 @@ import { MatTooltipModule } from '@angular/material/tooltip';
       border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-bottom: 12px;
     }
     td { font-size: 13px; }
+    .badge {
+      display: inline-block;
+      margin-left: 8px;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.08);
+      vertical-align: middle;
+    }
     .mono {
       font-family: "Roboto Mono", ui-monospace, monospace;
       font-size: 12px;
@@ -112,6 +129,7 @@ export class InboxTableComponent {
   @Output() toggleIntake = new EventEmitter<void>();
   @Output() refresh = new EventEmitter<string>();
   @Output() editSource = new EventEmitter<string>();
+  @Output() attachments = new EventEmitter<string>();
   @Output() grade = new EventEmitter<string>();
   @Output() improve = new EventEmitter<string>();
   @Output() approve = new EventEmitter<string>();
@@ -130,6 +148,24 @@ export class InboxTableComponent {
 
   canEditSource(row: InboxItem): boolean {
     return row.status === 'imported';
+  }
+
+  canAttachments(row: InboxItem): boolean {
+    return row.status === 'imported' && (row.attachment_count || 0) > 0;
+  }
+
+  badge(row: InboxItem): string {
+    const n = row.attachment_count || 0;
+    const sel = row.selected_count || 0;
+    const vid = row.video_count || 0;
+    let s = `${sel}/${n}`;
+    if (vid) s += ` · ${vid} video`;
+    return s;
+  }
+
+  badgeTitle(row: InboxItem): string {
+    return `${row.selected_count || 0} selected of ${row.attachment_count || 0}` +
+      (row.video_count ? `; ${row.video_count} video not downloaded` : '');
   }
 
   canGrade(row: InboxItem): boolean {

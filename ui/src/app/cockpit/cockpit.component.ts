@@ -15,6 +15,7 @@ import { SpecApproveDialogComponent } from '../dialogs/spec-approve-dialog.compo
 import { ImportDialogComponent } from '../dialogs/import-dialog.component';
 import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
 import { EditSourceDialogComponent } from '../dialogs/edit-source-dialog.component';
+import { AttachmentsDialogComponent } from '../dialogs/attachments-dialog.component';
 
 @Component({
   selector: 'app-cockpit',
@@ -52,6 +53,7 @@ import { EditSourceDialogComponent } from '../dialogs/edit-source-dialog.compone
             (importTickets)="openImport()"
             (refresh)="refreshImport($event)"
             (editSource)="openEditSource($event)"
+            (attachments)="openAttachments($event)"
             (grade)="runIntake($event, false)"
             (improve)="runIntake($event, true)"
             (approve)="openIntakeReview($event)"
@@ -241,6 +243,41 @@ export class CockpitComponent {
             error: (e) => {
               this.ui.busy.set(false);
               this.snack.open(e?.error?.error ?? 'Edit source failed', undefined, { duration: 6000 });
+              this.ui.refresh();
+            },
+          });
+        });
+      },
+      error: (e) => {
+        this.ui.fail(e, 'Load failed');
+      },
+    });
+  }
+
+  openAttachments(id: string): void {
+    this.api.inboxItem(id).subscribe({
+      next: (item) => {
+        const ref = this.dialog.open(AttachmentsDialogComponent, {
+          width: '560px',
+          data: {
+            id: item.id,
+            title: item.title,
+            url: item.url,
+            attachments: item.attachments || [],
+          },
+        });
+        ref.afterClosed().subscribe((select) => {
+          if (select == null) return;
+          this.ui.busy.set(true);
+          this.api.inboxAttachments(id, select).subscribe({
+            next: (r) => {
+              this.ui.busy.set(false);
+              this.snack.open(r.message || 'Attachments updated', undefined, { duration: 4000 });
+              this.ui.refresh();
+            },
+            error: (e) => {
+              this.ui.busy.set(false);
+              this.snack.open(e?.error?.error ?? 'Attachments failed', undefined, { duration: 6000 });
               this.ui.refresh();
             },
           });

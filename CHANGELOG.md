@@ -10,6 +10,7 @@
 
 - Jira import writes metadata, comments, and allowlisted custom fields into `source.md`; ADF lists/links/mentions survive flattening. Empty body still means no spec text (not “no summary”).
 - `conveyor import --refresh <id>` re-fetches a Jira ticket in place; `--replace <id>` overwrites `source.md`. Only `imported` items; re-importing the same key still creates `proj-9-2` and points at `--refresh`. Cockpit: **Fetch again** / **Edit source**.
+- Jira inbox attachments: import records a manifest (no blobs). Default-select small images; video/audio/archives are listed and never downloaded. `conveyor inbox attachments <id> [--select …]` chooses what ticket-reviewer may scan; Grade/Improve fetches those files into `tmp/attachments/`.
 
 - Intake → Jira **Test connection** saves the form to `jira.json` then checks credentials (same as `conveyor intake jira --test`).
 - `conveyor.conf.example` no longer documents `jira_base` / `jira_token_env`; operators set Jira in `.conveyor/local/jira.json` (`conveyor intake jira` or the cockpit settings rail). The `[inbox]` keys remain fallbacks only.

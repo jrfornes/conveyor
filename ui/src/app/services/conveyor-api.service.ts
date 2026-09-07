@@ -90,6 +90,10 @@ export class ConveyorApiService {
     return this.http.post<{ ok: boolean; message: string }>(`${this.base}/inbox/skip`, { id });
   }
 
+  inboxAttachments(id: string, select: string[] | 'none'): Observable<{ ok: boolean; message: string }> {
+    return this.http.post<{ ok: boolean; message: string }>(`${this.base}/inbox/attachments`, { id, select });
+  }
+
   startTask(name: string): Observable<{ ok: boolean; message: string }> {
     return this.http.post<{ ok: boolean; message: string }>(`${this.base}/start-task`, { name });
   }

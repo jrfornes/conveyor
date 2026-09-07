@@ -137,16 +137,19 @@ def write_file(paths, iid, name, text):
 
 def item(paths, iid):
     """Full item dict for API/CLI."""
+    from . import attachments
     meta = read_meta(paths, iid)
     meta["id"] = iid
     meta["source_md"] = read_file(paths, iid, "source.md")
     meta["grade_md"] = read_file(paths, iid, "grade.md")
     meta["proposed_md"] = read_file(paths, iid, "proposed-task.md")
     meta["comments"] = read_file(paths, iid, "comments.txt")
+    meta["attachments"] = attachments.read(paths, iid)
     return meta
 
 
 def list_items(paths):
+    from . import attachments
     out = []
     for iid in list_ids(paths):
         try:
@@ -156,6 +159,7 @@ def list_items(paths):
         meta["id"] = iid
         meta["has_grade"] = bool(read_file(paths, iid, "grade.md").strip())
         meta["has_proposed"] = bool(read_file(paths, iid, "proposed-task.md").strip())
+        meta.update(attachments.counts(attachments.read(paths, iid)))
         out.append(meta)
     return out
 

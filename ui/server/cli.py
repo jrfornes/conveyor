@@ -91,6 +91,21 @@ def inbox_skip(root, iid):
     return run(root, "inbox", "skip", iid)
 
 
+def inbox_attachments(root, iid, select=None):
+    if select is None:
+        return run(root, "inbox", "attachments", iid)
+    if select == "none" or select == []:
+        args = ["inbox", "attachments", iid, "--select", "none"]
+    elif isinstance(select, str):
+        args = ["inbox", "attachments", iid, "--select", select]
+    else:
+        args = ["inbox", "attachments", iid, "--select", ",".join(str(x) for x in select)]
+    try:
+        return run(root, *args)
+    except RuntimeError as e:
+        raise ValueError(str(e)) from e
+
+
 def start_task(root, name):
     return run(root, "start-task", name)
 

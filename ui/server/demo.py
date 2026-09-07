@@ -76,7 +76,7 @@ def make_demo():
         _conveyor(root, "task", "stuck", input_text=TASK_STUCK)
         _conveyor(root, "import", "--source", "manual", "--title", "sample-ticket",
                   input_text=TICKET)
-        from conveyor import config, inbox, layout, presets
+        from conveyor import attachments, config, inbox, layout, presets
         cfg = config.load(root)
         paths = layout.Paths(root)
         paths.ensure(cfg)
@@ -89,6 +89,13 @@ def make_demo():
             "external_id": "PROJ-9",
             "status": "imported",
         }, "# PROJ-9\n\n1. Fetched from Jira in the demo fixture.\n")
+        attachments.install(paths, "proj-9", [
+            {"id": "10001", "filename": "repro.png", "mime": "image/png", "size": 12,
+             "content_url": "https://example.atlassian.net/rest/api/3/attachment/content/10001"},
+            {"id": "10002", "filename": "walkthrough.mp4", "mime": "video/mp4", "size": 99,
+             "content_url": "https://example.atlassian.net/rest/api/3/attachment/content/10002"},
+        ], "# PROJ-9\n\n1. Fetched from Jira in the demo fixture.\n",
+           "https://example.atlassian.net/browse/PROJ-9")
         _park_task(root, "stuck")
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)

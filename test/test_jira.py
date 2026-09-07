@@ -2,6 +2,8 @@
 import base64
 import json
 import os
+import shutil
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -153,6 +155,96 @@ class JiraRedirect(unittest.TestCase):
             self.assertEqual(handler.dest_hits, 1)
         finally:
             server.shutdown()
+
+
+class _AuthCaptureHandler(BaseHTTPRequestHandler):
+    auths = []
+    status = 200
+    location = ""
+    body = b"file-bytes"
+
+    def do_GET(self):
+        type(self).auths.append(self.headers.get("Authorization"))
+        self.send_response(self.status)
+        if self.location:
+            self.send_header("Location", self.location)
+        if self.status == 200:
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(self.body)))
+        self.end_headers()
+        if self.status == 200:
+            self.wfile.write(self.body)
+
+    def log_message(self, *_args):
+        pass
+
+
+class JiraDownloadContent(unittest.TestCase):
+    def _serve(self, **attrs):
+        handler = type("H", (_AuthCaptureHandler,), {"auths": [], **attrs})
+        server = HTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        return server, handler, server.server_address[1]
+
+    def test_cdn_hop_omits_authorization(self):
+        cdn, cdn_h, cdn_port = self._serve(status=200, body=b"cdn-bytes")
+        origin, origin_h, origin_port = self._serve(
+            status=302, location=f"http://127.0.0.1:{cdn_port}/file")
+        dest = os.path.join(tempfile.mkdtemp(), "out.bin")
+        try:
+            auth = "Basic " + base64.b64encode(b"a@b.com:tok").decode("ascii")
+            jiralib.download_content(
+                f"http://127.0.0.1:{origin_port}/attachment/content/1",
+                dest, {"Authorization": auth}, 10 * 1024 * 1024)
+            with open(dest, "rb") as f:
+                self.assertEqual(f.read(), b"cdn-bytes")
+            self.assertEqual(origin_h.auths, [auth])
+            self.assertEqual(cdn_h.auths, [None])
+        finally:
+            origin.shutdown()
+            origin.server_close()
+            cdn.shutdown()
+            cdn.server_close()
+            shutil.rmtree(os.path.dirname(dest), ignore_errors=True)
+
+    def test_urlopen_still_refuses_cross_host(self):
+        cdn, cdn_h, cdn_port = self._serve(status=200, body=b"nope")
+        origin, origin_h, origin_port = self._serve(
+            status=302, location=f"http://127.0.0.1:{cdn_port}/file")
+        try:
+            auth = "Basic " + base64.b64encode(b"a@b.com:tok").decode("ascii")
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                with jiralib.urlopen(
+                    f"http://127.0.0.1:{origin_port}/redirect",
+                    {"Authorization": auth}):
+                    pass
+            self.assertIn("refusing cross-host redirect", str(ctx.exception.reason))
+            self.assertEqual(cdn_h.auths, [])
+        finally:
+            origin.shutdown()
+            origin.server_close()
+            cdn.shutdown()
+            cdn.server_close()
+
+    def test_cdn_further_redirect_fails_closed(self):
+        cdn, cdn_h, cdn_port = self._serve(status=302, location="https://evil.example/x")
+        origin, origin_h, origin_port = self._serve(
+            status=302, location=f"http://127.0.0.1:{cdn_port}/file")
+        dest = os.path.join(tempfile.mkdtemp(), "out.bin")
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                jiralib.download_content(
+                    f"http://127.0.0.1:{origin_port}/a",
+                    dest, {"Authorization": "Basic abc"}, 1024)
+            self.assertIn("refusing", str(ctx.exception.reason).lower())
+            self.assertFalse(os.path.isfile(dest))
+        finally:
+            origin.shutdown()
+            origin.server_close()
+            cdn.shutdown()
+            cdn.server_close()
+            shutil.rmtree(os.path.dirname(dest), ignore_errors=True)
 
 
 class JiraFetchFallback(ConveyorTest):

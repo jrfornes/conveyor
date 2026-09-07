@@ -34,6 +34,14 @@ def atomic_write(path, text):
     os.replace(tmp, path)
 
 
+def atomic_write_bytes(path, data):
+    """Write bytes to path via <path>.tmp + rename."""
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+
 def read_text(path):
     with open(path, encoding="utf-8") as f:
         return f.read()

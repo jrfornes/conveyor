@@ -50,10 +50,11 @@ cursor-agent --list-models
 | Unstick a parked task | read `.conveyor/needs-human/<task>/reason`, fix the cause, `conveyor resume <task>` |
 | Stop cleanly | `conveyor stop` (waits for in-flight agent runs) |
 | Stop now | `conveyor stop --now` (kills agents; items stay in `in_process/` and resume on next start) |
-| Import a ticket | `conveyor import --source manual` (or `jira`; set Jira creds with `conveyor intake jira --site … --email … --token-stdin` or Inbox → Intake settings → Jira — failures print `failed <KEY>  <status> <reason>` and skip the row) |
-| Re-fetch a Jira inbox item | `conveyor import --refresh <id>` (only `imported`; overwrites `source.md` in place) |
-| Replace inbox source text | `conveyor import --replace <id>` (body on stdin; only `imported`) |
-| Run intake on an inbox item | `conveyor intake <id>` |
+| Import a ticket | `conveyor import --source manual` (or `jira`; set Jira creds with `conveyor intake jira --site … --email … --token-stdin` or Inbox → Intake settings → Jira — failures print `failed <KEY>  <status> <reason>` and skip the row). Jira attachments are listed on import (not downloaded); video/audio print a watch-in-Jira notice. Empty description skips Grade only when there are also no attachments. |
+| Re-fetch a Jira inbox item | `conveyor import --refresh <id>` (only `imported`; overwrites `source.md` in place; refreshes the attachment list, keeps selection by id) |
+| Replace inbox source text | `conveyor import --replace <id>` (body on stdin; only `imported`; Conveyor rewrites the attachments footer) |
+| Choose intake attachments | `conveyor inbox attachments <id>` or `… --select 10001,10002` / `--select none` |
+| Run intake on an inbox item | `conveyor intake <id>` (downloads selected scannable files into the intake worktree `tmp/attachments/`) |
 | Accept or skip a graded ticket | `conveyor inbox approve <id>` or `conveyor inbox skip <id>` |
 | Approve or reject a gated handoff | `conveyor approve <id>` or `conveyor reject <id>` |
 | List or switch workflows | `conveyor workflow list` or `conveyor workflow activate <slug>` |

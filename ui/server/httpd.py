@@ -145,6 +145,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/inbox/skip":
                 msg = cli.inbox_skip(self.repo_root, body["id"])
                 return self._json(200, {"ok": True, "message": msg})
+            if path == "/api/inbox/attachments":
+                msg = cli.inbox_attachments(
+                    self.repo_root, body["id"], body.get("select"))
+                return self._json(200, {"ok": True, "message": msg})
             if path == "/api/start-task":
                 msg = cli.start_task(self.repo_root, body["name"])
                 return self._json(200, {"ok": True, "message": msg})

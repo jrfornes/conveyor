@@ -29,6 +29,17 @@ export interface NeedsHumanEntry {
   detail: string;
 }
 
+export interface InboxAttachment {
+  id: string;
+  filename: string;
+  mime: string;
+  size: number;
+  kind: string;
+  selected: boolean;
+  downloadable: boolean;
+  skip_reason: string;
+}
+
 export interface InboxItem {
   id: string;
   source: string;
@@ -41,6 +52,9 @@ export interface InboxItem {
   task_name: string;
   has_grade: boolean;
   has_proposed: boolean;
+  attachment_count: number;
+  video_count: number;
+  selected_count: number;
 }
 
 export interface InboxDetail extends InboxItem {
@@ -48,6 +62,7 @@ export interface InboxDetail extends InboxItem {
   grade_md: string;
   proposed_md: string;
   comments: string;
+  attachments: InboxAttachment[];
 }
 
 export interface ApprovalItem {

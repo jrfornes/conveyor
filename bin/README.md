@@ -295,7 +295,17 @@ Where the protocol left a choice, the refusing option was taken.
     `fields.comment.comments` list (no extra `/comment` pagination). If that
     spec text is blank, `source.md` stays empty even when summary/type/status
     exist — metadata-only is not a body, so the empty-description notice
-    still fires and Grade stays skipped. Attachments are out.
+    still fires and Grade stays skipped, **unless** the ticket has attachments.
+    Import writes `attachments.json` (list only) and a trailing
+    `## Conveyor attachments` footer; default-selected small images
+    (`image/png|jpeg|jpg|gif|webp` under 10 MB) are marked selected. Video,
+    audio, and archives are listed but never downloaded (`--select` refused;
+    watch video in Jira). Bytes are fetched on `conveyor intake` into
+    `.conveyor/inbox/<id>/attachments/` and copied to the intake worktree
+    `tmp/attachments/` for ticket-reviewer only. `conveyor inbox attachments
+    <id> [--select ids|none]` lists or rewrites the selection. Refresh
+    updates the list and keeps `selected` for ids that still exist. OCR,
+    PDF-to-text, and video transcription are out.
 39. **`conveyor uninstall` is runtime-only by default.** `--yes` is required;
     without it the command prints what would be removed and exits nonzero.
     Default removes worktrees, local `conveyor-*` branches, `.conveyor/`, and

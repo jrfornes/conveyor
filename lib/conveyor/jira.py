@@ -3,11 +3,12 @@
 Auth is Basic base64(email:token). Bearer never worked against Atlassian Cloud.
 """
 import base64
+import contextlib
 import json
 import os
 import urllib.error
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from . import util
 
@@ -51,6 +52,94 @@ def urlopen(url, headers, timeout=15):
     opener = urllib.request.build_opener(_SameOriginRedirectHandler())
     req = urllib.request.Request(url, headers=headers)
     return opener.open(req, timeout=timeout)
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+
+
+def _same_origin(a, b):
+    pa, pb = urlsplit(a), urlsplit(b)
+    return (pa.scheme, pa.netloc) == (pb.scheme, pb.netloc)
+
+
+def _stream_to(resp, dest, max_bytes):
+    cl = resp.headers.get("Content-Length")
+    if cl is not None:
+        try:
+            nlen = int(cl)
+        except ValueError:
+            nlen = None
+        if nlen is not None and nlen > max_bytes:
+            raise ValueError(f"attachment exceeds {max_bytes} bytes")
+    tmp = dest + ".tmp"
+    os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+    n = 0
+    try:
+        with open(tmp, "wb") as f:
+            while True:
+                chunk = resp.read(64 * 1024)
+                if not chunk:
+                    break
+                n += len(chunk)
+                if n > max_bytes:
+                    raise ValueError(f"attachment exceeds {max_bytes} bytes")
+                f.write(chunk)
+        os.replace(tmp, dest)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise
+
+
+def download_content(url, dest, headers, max_bytes, timeout=15):
+    """Stream url to dest via dest.tmp + rename.
+
+    First hop is authenticated on the Jira origin. A single cross-host 302
+    (Cloud CDN) is followed without Authorization. Any other redirect or
+    off-site hop fails closed. Does not use urlopen (which never follows
+    cross-host).
+    """
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    current = url
+    hdrs = dict(headers or {})
+    cdn_used = False
+    hops = 0
+    while True:
+        hops += 1
+        if hops > 6:
+            raise urllib.error.HTTPError(
+                current, 302, "refusing redirect loop", hdrs, None)
+        req = urllib.request.Request(current, headers=hdrs)
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                if resp.status != 200:
+                    raise urllib.error.HTTPError(
+                        current, resp.status, f"unexpected status {resp.status}",
+                        resp.headers, None)
+                _stream_to(resp, dest, max_bytes)
+                return
+        except urllib.error.HTTPError as e:
+            if e.code not in (301, 302, 303, 307, 308):
+                raise
+            loc = e.headers.get("Location") if e.headers else None
+            if not loc:
+                raise urllib.error.HTTPError(
+                    current, e.code, "redirect with no Location", e.headers, None)
+            nxt = urljoin(current, loc)
+            if _same_origin(current, nxt):
+                if cdn_used:
+                    raise urllib.error.HTTPError(
+                        current, e.code, "refusing further redirect", e.headers, None)
+                current = nxt
+                continue
+            if e.code != 302 or cdn_used:
+                raise urllib.error.HTTPError(
+                    current, e.code, "refusing cross-host redirect", e.headers, None)
+            cdn_used = True
+            current = nxt
+            hdrs = {k: v for k, v in hdrs.items() if k.lower() != "authorization"}
 
 
 def read(paths):
