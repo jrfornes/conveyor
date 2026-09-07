@@ -105,7 +105,7 @@ import {
               Edit source
             </button>
           }
-          @if (it.attachments?.length) {
+          @if (it.attachments.length) {
             <button mat-stroked-button [disabled]="busy() || it.status !== 'imported'"
                     (click)="editAttachments()">
               Attachments
@@ -175,7 +175,7 @@ import {
           </section>
         }
 
-        @if (it.attachments?.length) {
+        @if (it.attachments.length) {
           <section>
             <h3>Attachments</h3>
             <p class="caption">
