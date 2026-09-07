@@ -140,7 +140,8 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return self._json(200, {"ok": True, "message": msg})
             if path == "/api/inbox/approve":
-                msg = cli.inbox_approve(self.repo_root, body["id"], body.get("name"), body.get("text"))
+                msg = cli.inbox_approve(self.repo_root, body["id"], body.get("name"),
+                                        body.get("text"), body.get("force", False))
                 return self._json(200, {"ok": True, "message": msg})
             if path == "/api/inbox/skip":
                 msg = cli.inbox_skip(self.repo_root, body["id"])

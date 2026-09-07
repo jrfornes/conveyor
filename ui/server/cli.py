@@ -76,7 +76,7 @@ def intake(root, iid, improve=False, comments=None):
     return run(root, *args)
 
 
-def inbox_approve(root, iid, name=None, text=None):
+def inbox_approve(root, iid, name=None, text=None, force=False):
     if text:
         sys.path.insert(0, os.path.join(REPO, "lib"))
         from conveyor import inbox, layout
@@ -84,6 +84,8 @@ def inbox_approve(root, iid, name=None, text=None):
     args = ["inbox", "approve", iid]
     if name:
         args += ["--name", name]
+    if force:
+        args.append("--force")
     return run(root, *args)
 
 
