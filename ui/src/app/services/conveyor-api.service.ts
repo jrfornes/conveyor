@@ -70,6 +70,14 @@ export class ConveyorApiService {
     return this.http.post<{ ok: boolean; message: string }>(`${this.base}/import`, { source, title, body });
   }
 
+  refreshImport(id: string): Observable<{ ok: boolean; message: string }> {
+    return this.http.post<{ ok: boolean; message: string }>(`${this.base}/import/refresh`, { id });
+  }
+
+  replaceInboxSource(id: string, text: string): Observable<{ ok: boolean; message: string }> {
+    return this.http.post<{ ok: boolean; message: string }>(`${this.base}/inbox/source`, { id, text });
+  }
+
   intake(id: string, improve = false, comments?: string): Observable<{ ok: boolean; message: string }> {
     return this.http.post<{ ok: boolean; message: string }>(`${this.base}/intake`, { id, improve, comments });
   }
@@ -211,10 +219,18 @@ export class ConveyorApiService {
     return this.http.post<{ ok: boolean }>(`${this.base}/intake/jira/clear`, {});
   }
 
-  testIntakeJira(): Observable<{ ok: boolean; status: number; message: string }> {
-    return this.http.post<{ ok: boolean; status: number; message: string }>(
+  testIntakeJira(
+    site: string,
+    email: string,
+    token?: string,
+  ): Observable<{ ok: boolean; status: number; message: string } & IntakeJira> {
+    return this.http.post<{ ok: boolean; status: number; message: string } & IntakeJira>(
       `${this.base}/intake/jira/test`,
-      {},
+      {
+        site,
+        email,
+        ...(token ? { token } : {}),
+      },
     );
   }
 

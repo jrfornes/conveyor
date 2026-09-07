@@ -49,6 +49,12 @@ import { MatTooltipModule } from '@angular/material/tooltip';
         <ng-container matColumnDef="actions">
           <th mat-header-cell *matHeaderCellDef>Actions</th>
           <td mat-cell *matCellDef="let row">
+            @if (canRefresh(row)) {
+              <button mat-button (click)="refresh.emit(row.id)">Fetch again</button>
+            }
+            @if (canEditSource(row)) {
+              <button mat-button (click)="editSource.emit(row.id)">Edit source</button>
+            }
             @if (canGrade(row)) {
               <button mat-button [disabled]="intakeBusy"
                       [matTooltip]="intakeBusy ? 'Ticket-reviewer is busy; wait for it to finish' : ''"
@@ -96,12 +102,22 @@ export class InboxTableComponent {
   @Input() intakeBusyTask: string | null = null;
   @Output() importTickets = new EventEmitter<void>();
   @Output() toggleIntake = new EventEmitter<void>();
+  @Output() refresh = new EventEmitter<string>();
+  @Output() editSource = new EventEmitter<string>();
   @Output() grade = new EventEmitter<string>();
   @Output() improve = new EventEmitter<string>();
   @Output() approve = new EventEmitter<string>();
   @Output() start = new EventEmitter<InboxItem>();
   @Output() skip = new EventEmitter<string>();
   cols = ['title', 'source', 'grade', 'status', 'actions'];
+
+  canRefresh(row: InboxItem): boolean {
+    return row.source === 'jira' && row.status === 'imported';
+  }
+
+  canEditSource(row: InboxItem): boolean {
+    return row.status === 'imported';
+  }
 
   canGrade(row: InboxItem): boolean {
     return ['imported', 'graded', 'awaiting-approval'].includes(row.status);

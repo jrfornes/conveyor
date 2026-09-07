@@ -5,6 +5,7 @@ conveyor init [<path>] | uninstall [--yes] [--bundle]
            | start | stop [--now] | task <name> [--delete]
            | status | log <role> [<task>] | resume <task> [--to <role>]
            | import --source manual|jira [--title ...]
+           | import --refresh <id> | import --replace <id>
            | intake <id> [--improve] | intake config | intake jira
            | inbox approve <id> [--name <task>] | inbox skip <id>
            | start-task <name> | approve <id> | reject <id>
@@ -679,7 +680,8 @@ def _flag(args, name, default=None):
 def _positionals(args):
     skip = set()
     for flag in ("--name", "--title", "--source", "--comments",
-                 "--roles", "--gate", "--description", "--set", "--from"):
+                 "--roles", "--gate", "--description", "--set", "--from",
+                 "--refresh", "--replace"):
         if flag in args:
             i = args.index(flag)
             skip.add(i)
@@ -688,21 +690,102 @@ def _positionals(args):
     return [a for i, a in enumerate(args) if i not in skip and not a.startswith("--")]
 
 
+IMPORT_USAGE = (
+    "usage: conveyor import --source manual|jira [--title ...]\n"
+    "       conveyor import --refresh <id>\n"
+    "       conveyor import --replace <id>"
+)
+
+
+def _require_imported(meta, iid, verb):
+    status = meta.get("status") or "imported"
+    if status != "imported":
+        util.die(f"conveyor import: {iid} is {status}; "
+                 f"--{verb} only applies to imported items")
+
+
+def _empty_jira_notice(iid):
+    print(f"notice: {iid} has an empty Jira description; "
+          f"grade skipped until you add a body.")
+
+
+def _import_refresh(paths, cfg, iid):
+    try:
+        meta = inbox.read_meta(paths, iid)
+    except inbox.InboxError as e:
+        util.die(f"conveyor import: {e}")
+    _require_imported(meta, iid, "refresh")
+    if meta.get("source") != "jira":
+        util.die(f"conveyor import: {iid} is source {meta.get('source') or '-'}; "
+                 f"--refresh requires a Jira item")
+    external_id = meta.get("external_id") or "-"
+    if external_id in ("", "-"):
+        util.die(f"conveyor import: {iid} has no external_id; "
+                 f"--refresh requires a Jira issue key")
+    try:
+        tickets = adapters.fetch("jira", external_id, cfg=cfg, paths=paths)
+    except ValueError as e:
+        util.die(f"conveyor import: {e}")
+    t = tickets[0]
+    err = t.get("error")
+    if err:
+        line = f"failed {t.get('external_id') or external_id}  {err['status']} {err['message']}"
+        print(line)
+        util.die(line)
+    inbox.write_file(paths, iid, "source.md", t.get("body") or "")
+    inbox.update_meta(paths, iid, title=t["title"], url=t.get("url") or "-")
+    print(f"refreshed {iid}  {t['title']}")
+    if not (t.get("body") or "").strip():
+        _empty_jira_notice(iid)
+
+
+def _import_replace(paths, iid, raw):
+    try:
+        meta = inbox.read_meta(paths, iid)
+    except inbox.InboxError as e:
+        util.die(f"conveyor import: {e}")
+    _require_imported(meta, iid, "replace")
+    inbox.write_file(paths, iid, "source.md", raw)
+    print(f"replaced {iid}")
+
+
 def cmd_import(args):
     root, cfg, paths = setup()
     paths.ensure(cfg)
+    has_refresh = "--refresh" in args
+    has_replace = "--replace" in args
+    refresh_id = _flag(args, "--refresh")
+    replace_id = _flag(args, "--replace")
+    extras = _positionals(args)
+    if has_refresh and has_replace:
+        util.die(IMPORT_USAGE)
+    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+    if has_refresh:
+        if not refresh_id or extras or raw.strip():
+            util.die(IMPORT_USAGE)
+        return _import_refresh(paths, cfg, refresh_id)
+    if has_replace:
+        if not replace_id or extras:
+            util.die(IMPORT_USAGE)
+        if not raw.strip():
+            util.die("conveyor import: empty replacement text")
+        return _import_replace(paths, replace_id, raw)
     source = _flag(args, "--source", "manual")
     title = _flag(args, "--title", "")
-    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
     try:
         tickets = adapters.fetch(source, raw, cfg=cfg, title=title, paths=paths)
     except ValueError as e:
         util.die(f"conveyor import: {e}")
     created = []
-    empty_body = []
     for t in tickets:
+        err = t.get("error")
+        if err:
+            key = t.get("external_id") or "?"
+            print(f"failed {key}  {err['status']} {err['message']}")
+            continue
+        preferred = (t.get("external_id") or "").lower().replace("_", "-")
         iid = inbox.create(paths, {
-            "id": (t.get("external_id") or "").lower().replace("_", "-"),
+            "id": preferred,
             "source": t["source"],
             "title": t["title"],
             "url": t.get("url") or "-",
@@ -711,15 +794,11 @@ def cmd_import(args):
         }, t.get("body") or "")
         created.append(iid)
         print(f"imported {iid}  {t['title']}")
+        if source == "jira" and preferred and iid != preferred and inbox.exists(paths, preferred):
+            print(f"notice: {preferred} exists; created {iid}. "
+                  f"To update the original: conveyor import --refresh {preferred}")
         if source == "jira" and not (t.get("body") or "").strip():
-            empty_body.append(iid)
-    if empty_body:
-        # Grading works from whatever text is on the item, so this is not
-        # fatal — but a silent empty ticket reads as a broken grade later.
-        print(f"notice: {len(empty_body)} item(s) imported with no ticket body "
-              f"({', '.join(empty_body)}): Jira credentials are missing, incomplete, or the "
-              f"fetch failed. Paste the body into the item, or set site/email/token under "
-              f"Intake settings → Jira and re-import.")
+            _empty_jira_notice(iid)
     if not created:
         util.die("conveyor import: nothing imported")
 
@@ -766,12 +845,15 @@ def cmd_intake_jira(args):
             token = token[:-1]
     if site is not None or email is not None or token is not None:
         existing = jiralib.read(paths)
-        jiralib.write(
-            paths,
-            existing["site"] if site is None else site,
-            existing["email"] if email is None else email,
-            existing["token"] if not token else token,
-        )
+        try:
+            jiralib.write(
+                paths,
+                existing["site"] if site is None else site,
+                existing["email"] if email is None else email,
+                existing["token"] if not token else token,
+            )
+        except ValueError as e:
+            util.die(f"conveyor intake jira: {e}")
         print("wrote .conveyor/local/jira.json")
     if "--test" in args:
         result = jiralib.check(paths, cfg)

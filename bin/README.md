@@ -43,7 +43,7 @@ re-init of a pre-Stage-4 repo. It never commits — review and commit yourself. 
 
 ```
 bin/conveyor          operator CLI: init | uninstall | start | stop | task | status | log | resume
-                      | import | intake [config|jira|<id>] | inbox approve/skip | start-task
+                      | import [--refresh/--replace] | intake [config|jira|<id>] | inbox approve/skip | start-task
                       | approve | reject | workflow …
 bin/conveyor-ui       optional localhost cockpit (`--demo` throwaway fixture)
 bin/handoff.sh        validator + audit gate (protocol §4–5)
@@ -248,10 +248,22 @@ Where the protocol left a choice, the refusing option was taken.
     and dies with the reason.
 32. **Jira Cloud auth is Basic, not Bearer.** `.conveyor/local/jira.json`
     holds `{site, email, token}` (mode 600). Email can only come from that
-    file. A repo with only `jira_base` + `jira_token_env` no longer fetches
+    file; `conveyor.conf.example` points operators there, not at
+    `jira_base` / `jira_token_env` (those `[inbox]` keys remain fallbacks
+    only). A repo with only `jira_base` + `jira_token_env` no longer fetches
     a body — Bearer never worked against Cloud. `conveyor import --source
-    jira` prints a one-line notice. The token is never put on argv or in an
-    HTTP response.
+    jira` refuses when site, email, or token is missing; HTTP fetch failures
+    print `failed <KEY>  <status> <reason>` and do not create an inbox row;
+    a fetched ticket with no spec text (empty description, no comments or
+    allowlisted custom fields) creates a row and prints a separate
+    empty-description notice (not a credentials hint). The token is
+    never put on argv or in an HTTP response. In the cockpit, **Test
+    connection** is write-then-check (same as CLI `--test`), not a probe of
+    unsaved form fields; an empty POST tests the saved file only. Site URL
+    must be `https://…` (`http://127.0.0.1` / `localhost` only for local
+    Jira); bare hosts and `file:` are refused; a pasted `/browse/KEY` URL
+    is canonicalized to the site root; cross-host redirects are not followed
+    (Basic auth stays on the configured host).
 33. **`config` and `jira` are reserved inbox ids** so `conveyor intake config`
     is never an item lookup. An imported ticket titled "jira" becomes `jira-2`.
 34. **The intake HTTP API is POST-only**, same as roles/project/runtime, against
@@ -271,7 +283,20 @@ Where the protocol left a choice, the refusing option was taken.
     in git and merged into the worktree under `.agents/skills/` or
     `.cursor/skills/`. When the same name exists in both repo-root catalogs,
     `.agents/skills` wins for discovery, validation, and injection.
-37. **`conveyor uninstall` is runtime-only by default.** `--yes` is required;
+37. **`--refresh` / `--replace` only touch `imported` items.** After Grade the
+    graded body is the source; Improve or re-Grade instead. `--refresh` also
+    requires `source == jira` and a real `external_id`. Re-importing the same
+    Jira key still allocates `proj-9-2` (never a silent overwrite) and prints
+    a notice pointing at `conveyor import --refresh proj-9`.
+38. **Jira import body is spec text, not metadata.** `GET /issue/{key}?expand=names`
+    flattens the ADF description (lists, links, mentions, headings, code; no
+    HTML or images), then appends `customfield_*` whose `names[id]` matches
+    `(?i)acceptance|criteri|repro|expected|user story` and the embedded
+    `fields.comment.comments` list (no extra `/comment` pagination). If that
+    spec text is blank, `source.md` stays empty even when summary/type/status
+    exist — metadata-only is not a body, so the empty-description notice
+    still fires and Grade stays skipped. Attachments are out.
+39. **`conveyor uninstall` is runtime-only by default.** `--yes` is required;
     without it the command prints what would be removed and exits nonzero.
     Default removes worktrees, local `conveyor-*` branches, `.conveyor/`, and
     the byline hook only when its contents match the shipped copy. `--bundle`

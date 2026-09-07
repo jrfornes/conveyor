@@ -2,6 +2,7 @@
 import json
 import os
 import shutil
+import stat
 import sys
 import threading
 import unittest
@@ -14,7 +15,8 @@ sys.path.insert(0, os.path.join(REPO, "test"))
 
 from harness import Fixture  # noqa: E402
 from ui.server.httpd import Handler, ThreadingHTTPServer  # noqa: E402
-from conveyor import config, inbox  # noqa: E402
+from conveyor import config, inbox, jira as jiralib  # noqa: E402
+from test_inbox import _jira_mock_server  # noqa: E402
 
 
 def get(url):
@@ -412,6 +414,52 @@ class UiApiTest(unittest.TestCase):
         self.assertNotIn("token", got["jira"])
         self.assertTrue(got["jira"]["token_set"])
 
+    def test_intake_jira_test_writes_then_checks(self):
+        site = "https://127.0.0.1:1"
+        email = "dev@ex.com"
+        token = "super-secret-token"
+        code, body = post(f"{self.base}/api/intake/jira/test", {
+            "site": site,
+            "email": email,
+            "token": token,
+        })
+        self.assertEqual(code, 200, body)
+        blob = json.dumps(body)
+        self.assertNotIn(token, blob)
+        self.assertNotIn('"token"', blob)
+        self.assertTrue(body["token_set"])
+        self.assertEqual(body["site"], site)
+        self.assertEqual(body["email"], email)
+        self.assertFalse(body["ok"])
+        stored = jiralib.read(self.fx.paths)
+        self.assertEqual(stored["site"], site)
+        self.assertEqual(stored["email"], email)
+        self.assertEqual(stored["token"], token)
+        mode = stat.S_IMODE(os.stat(self.fx.paths.jira).st_mode)
+        self.assertEqual(mode, 0o600)
+
+    def test_intake_jira_test_empty_body_does_not_write(self):
+        jiralib.write(self.fx.paths, "https://a.example", "a@ex.com", "tok-a")
+        code, body = post(f"{self.base}/api/intake/jira/test", {})
+        self.assertEqual(code, 200, body)
+        stored = jiralib.read(self.fx.paths)
+        self.assertEqual(stored["site"], "https://a.example")
+        self.assertEqual(stored["email"], "a@ex.com")
+        self.assertEqual(stored["token"], "tok-a")
+
+    def test_intake_jira_test_omitted_token_keeps_stored(self):
+        jiralib.write(self.fx.paths, "https://a.example", "a@ex.com", "tok-a")
+        code, body = post(f"{self.base}/api/intake/jira/test", {
+            "site": "https://b.example",
+            "email": "b@ex.com",
+        })
+        self.assertEqual(code, 200, body)
+        stored = jiralib.read(self.fx.paths)
+        self.assertEqual(stored["site"], "https://b.example")
+        self.assertEqual(stored["email"], "b@ex.com")
+        self.assertEqual(stored["token"], "tok-a")
+        self.assertTrue(body["token_set"])
+
     def test_intake_prompt_and_rubric(self):
         got = get(f"{self.base}/api/intake")
         self.assertIn("## Owns", got["prompt"])
@@ -422,6 +470,52 @@ class UiApiTest(unittest.TestCase):
         self.assertEqual(body["path"], "intake/rubric.md")
         code, body = post(f"{self.base}/api/intake/prompt", {"text": "no headings\n"})
         self.assertEqual(code, 400, body)
+
+    def test_refresh_and_replace_source(self):
+        iid = inbox.create(self.fx.paths, {
+            "id": "proj-9", "source": "jira", "title": "Old title",
+            "url": "https://ex.atlassian.net/browse/PROJ-9",
+            "external_id": "PROJ-9", "status": "imported",
+        }, "Old body\n")
+        payload = json.dumps({"fields": {"summary": "Fresh title", "description": "Fresh body"}})
+        server, base = _jira_mock_server({"PROJ-9": (200, payload)})
+        jiralib.write(self.fx.paths, base, "dev@ex.com", "tok-secret")
+        try:
+            code, body = post(f"{self.base}/api/import/refresh", {"id": iid})
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(code, 200, body)
+        self.assertTrue(body["ok"])
+        self.assertIn("refreshed proj-9", body["message"])
+        self.assertNotIn("tok-secret", json.dumps(body))
+        item = get(f"{self.base}/api/inbox/proj-9")
+        self.assertEqual(item["title"], "Fresh title")
+        self.assertIn("Fresh body", item["source_md"])
+        self.assertNotIn("tok-secret", json.dumps(item))
+        code, body = post(f"{self.base}/api/inbox/source", {
+            "id": iid, "text": "# Replaced\n\nBy the operator.\n",
+        })
+        self.assertEqual(code, 200, body)
+        self.assertIn("replaced proj-9", body["message"])
+        self.assertNotIn("tok-secret", json.dumps(body))
+        item = get(f"{self.base}/api/inbox/proj-9")
+        self.assertIn("By the operator", item["source_md"])
+        self.assertEqual(item["status"], "imported")
+
+    def test_refresh_and_replace_400_when_not_imported(self):
+        iid = inbox.create(self.fx.paths, {
+            "id": "locked-src", "source": "jira", "title": "Locked",
+            "external_id": "PROJ-9", "status": "graded",
+        }, "Do not touch.\n")
+        code, body = post(f"{self.base}/api/import/refresh", {"id": iid})
+        self.assertEqual(code, 400, body)
+        self.assertIn("imported", body["error"])
+        self.assertEqual(inbox.read_file(self.fx.paths, iid, "source.md"), "Do not touch.\n")
+        code, body = post(f"{self.base}/api/inbox/source", {"id": iid, "text": "Nope\n"})
+        self.assertEqual(code, 400, body)
+        self.assertIn("imported", body["error"])
+        self.assertEqual(inbox.read_file(self.fx.paths, iid, "source.md"), "Do not touch.\n")
 
 
 if __name__ == "__main__":

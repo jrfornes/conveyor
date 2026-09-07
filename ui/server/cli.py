@@ -51,6 +51,20 @@ def import_tickets(root, source, title="", body=""):
     return run(root, *args, input_text=body or "")
 
 
+def refresh_import(root, iid):
+    try:
+        return run(root, "import", "--refresh", iid)
+    except RuntimeError as e:
+        raise ValueError(str(e)) from e
+
+
+def replace_inbox_source(root, iid, text):
+    try:
+        return run(root, "import", "--replace", iid, input_text=text)
+    except RuntimeError as e:
+        raise ValueError(str(e)) from e
+
+
 def intake(root, iid, improve=False, comments=None):
     if comments:
         sys.path.insert(0, os.path.join(REPO, "lib"))

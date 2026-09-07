@@ -39,7 +39,7 @@ import { MatTabsModule } from '@angular/material/tabs';
               <mat-label>Issue keys or browse URLs (one per line)</mat-label>
               <textarea matInput formControlName="lines" rows="8" placeholder="PROJ-123&#10;https://example.atlassian.net/browse/PROJ-124"></textarea>
             </mat-form-field>
-            <p class="hint">If Jira credentials are missing the item is still created; paste a body after import if source is empty.</p>
+            <p class="hint">Jira import needs site, email, and token (Intake settings → Jira). A blank Jira description still creates a row but is not auto-graded.</p>
           </form>
         </mat-tab>
       </mat-tab-group>

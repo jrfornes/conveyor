@@ -49,7 +49,7 @@ class IntakeCli(ConveyorTest):
         r = fx.conveyor("import", "--source", "manual", "--title", "config",
                         input="# Config ticket\n\n1. Not the verb.\n")
         self.assertIn("imported config-2", r.stdout)
-        r = fx.conveyor("import", "--source", "jira", input="JIRA-1\n")
+        r = fx.conveyor("import", "--source", "jira", input="JIRA-1\n", check=False)
         # slug from JIRA-1 is jira-1, not reserved; force a 'jira' preferred
         iid = inbox.create(fx.paths, {"id": "jira", "title": "jira", "source": "manual"})
         self.assertEqual(iid, "jira-2")
@@ -68,12 +68,13 @@ class IntakeCli(ConveyorTest):
                                http_get=http_get, paths=fx.paths)
         self.assertEqual(items[0]["title"], "Broken login")
         self.assertIn("/rest/api/3/issue/PROJ-9", seen["url"])
+        self.assertIn("expand=names", seen["url"])
         expected = "Basic " + base64.b64encode(b"dev@ex.com:tok").decode("ascii")
         self.assertEqual(seen["headers"]["Authorization"], expected)
         self.assertNotIn("Bearer", seen["headers"]["Authorization"])
         self.assertNotIn("Bearer", json.dumps(seen["headers"]))
 
-    def test_jira_partial_creds_degrade_silently(self):
+    def test_jira_partial_creds_raise(self):
         fx = self.fx
         called = []
 
@@ -81,17 +82,17 @@ class IntakeCli(ConveyorTest):
             called.append(url)
             raise AssertionError("HTTP must not run")
 
-        items = adapters.fetch("jira", "PROJ-9", cfg=config.load(fx.root),
-                               http_get=http_get, paths=fx.paths)
+        with self.assertRaises(ValueError) as ctx:
+            adapters.fetch("jira", "PROJ-9", cfg=config.load(fx.root),
+                           http_get=http_get, paths=fx.paths)
+        self.assertIn("Jira credentials missing or incomplete", str(ctx.exception))
         self.assertEqual(called, [])
-        self.assertEqual(items[0]["title"], "PROJ-9")
-        self.assertEqual(items[0]["body"], "")
         # site but no email
         jiralib.write(fx.paths, "https://ex.atlassian.net", "", "tok")
-        items = adapters.fetch("jira", "PROJ-9", cfg=config.load(fx.root),
-                               http_get=http_get, paths=fx.paths)
+        with self.assertRaises(ValueError):
+            adapters.fetch("jira", "PROJ-9", cfg=config.load(fx.root),
+                           http_get=http_get, paths=fx.paths)
         self.assertEqual(called, [])
-        self.assertEqual(items[0]["body"], "")
 
     def test_jira_json_is_mode_600_and_gitignored(self):
         fx = self.fx

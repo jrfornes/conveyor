@@ -483,8 +483,18 @@ def clear_intake_jira(root):
     jiralib.clear(layout.Paths(root))
 
 
-def test_intake_jira(root):
-    return jiralib.check(layout.Paths(root), _cfg(root))
+def test_intake_jira(root, body=None):
+    body = body or {}
+    if any(k in body for k in ("site", "email", "token")):
+        write_intake_jira(
+            root,
+            body.get("site") if "site" in body else None,
+            body.get("email") if "email" in body else None,
+            body.get("token") if "token" in body else None,
+        )
+    paths = layout.Paths(root)
+    result = jiralib.check(paths, _cfg(root))
+    return {**result, **jiralib.redact(jiralib.read(paths))}
 
 
 def update_role_runtime(root, name, model, max_retries, max_minutes, max_attempts):

@@ -76,11 +76,19 @@ def make_demo():
         _conveyor(root, "task", "stuck", input_text=TASK_STUCK)
         _conveyor(root, "import", "--source", "manual", "--title", "sample-ticket",
                   input_text=TICKET)
-        from conveyor import config, layout, presets
+        from conveyor import config, inbox, layout, presets
         cfg = config.load(root)
         paths = layout.Paths(root)
         paths.ensure(cfg)
         presets.ensure_seeded(paths)
+        inbox.create(paths, {
+            "id": "proj-9",
+            "source": "jira",
+            "title": "Demo Jira ticket",
+            "url": "https://example.atlassian.net/browse/PROJ-9",
+            "external_id": "PROJ-9",
+            "status": "imported",
+        }, "# PROJ-9\n\n1. Fetched from Jira in the demo fixture.\n")
         _park_task(root, "stuck")
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)

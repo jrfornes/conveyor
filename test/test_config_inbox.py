@@ -56,12 +56,12 @@ class WriteInbox(unittest.TestCase):
         text = read(os.path.join(self.tmp, "conveyor.conf"))
         after_roles = [ln for ln in text.splitlines(True) if ln.startswith("role ")]
         self.assertEqual(before_roles, after_roles)
-        self.assertIn("# Optional inbox adapter", text)
+        self.assertIn("# Optional intake ceilings", text)
         self.assertIn("[inbox]\n", text)
         self.assertNotIn("# [inbox]", text)
         self.assertIn("ticket_reviewer_model = gpt-5\n", text)
         # commented examples under the promoted header stay comments
-        self.assertIn("# jira_base = https://example.atlassian.net\n", text)
+        self.assertIn("# ticket_reviewer_max_minutes = 30\n", text)
         cfg = config.load(self.tmp)
         self.assertEqual(cfg.inbox.ticket_reviewer_model, "gpt-5")
         self.assertEqual(cfg.chain_label(), "coder → reviewer")

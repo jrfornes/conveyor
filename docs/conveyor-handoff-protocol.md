@@ -120,7 +120,7 @@ loop.lock/        mkdir-style lock; contains pid file
 | `logs/gates/` | `handoff.sh` | nobody |
 | `needs-human/` | any loop | `conveyor resume` |
 | `board.tsv` | `handoff.sh`, loops, `conveyor task/resume` — under `board.lock` | — |
-| `.conveyor/inbox/<id>/` | `conveyor import` / `conveyor intake` | `conveyor inbox approve/skip` |
+| `.conveyor/inbox/<id>/` | `conveyor import` (create, or refresh/replace `source.md` on an existing id) / `conveyor intake` | `conveyor inbox approve/skip` |
 | `.conveyor/approvals/pending/` | the gated role's loop (sweep hold) | `conveyor approve` / `conveyor reject` |
 
 ### 2.4 Inbox item (`.conveyor/inbox/<id>/`)

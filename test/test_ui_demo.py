@@ -31,6 +31,7 @@ class UiDemo(unittest.TestCase):
         self.assertEqual(rows["stuck"]["lane"], "needs-human")
         self.assertTrue(os.path.isfile(os.path.join(paths.needs_human, "stuck", "reason")))
         self.assertIn("sample-ticket", inbox.list_ids(paths))
+        self.assertEqual(inbox.read_meta(paths, "proj-9")["source"], "jira")
         slugs = {p["slug"] for p in presets.load_all(paths)}
         self.assertIn("review-belt", slugs)
 
@@ -39,6 +40,7 @@ class UiDemo(unittest.TestCase):
         self.assertTrue(any(t["name"] == "demo" for t in snap["tasks"]))
         self.assertTrue(any(t["name"] == "stuck" for t in snap["tasks"]))
         self.assertTrue(any(i["id"] == "sample-ticket" for i in snap["inbox"]))
+        self.assertTrue(any(i["id"] == "proj-9" and i["source"] == "jira" for i in snap["inbox"]))
         self.assertTrue(snap["needs_human"])
         self.assertEqual(snap["workflow"]["id"], "review-belt")
 

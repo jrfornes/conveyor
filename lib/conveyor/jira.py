@@ -7,8 +7,50 @@ import json
 import os
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 from . import util
+
+_ORIGIN_ERR = "site must be https://… (http://127.0.0.1 is allowed for local Jira)"
+
+
+def origin(site):
+    """Canonical Jira base URL: https (http loopback only), /browse stripped."""
+    site = (site or "").strip()
+    if not site:
+        raise ValueError("missing site")
+    parts = urlsplit(site)
+    scheme = (parts.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(_ORIGIN_ERR)
+    host = (parts.hostname or "").lower()
+    if not host:
+        raise ValueError(_ORIGIN_ERR)
+    if scheme == "http" and host not in ("127.0.0.1", "localhost"):
+        raise ValueError(_ORIGIN_ERR)
+    path = parts.path or ""
+    if path == "/browse" or path.startswith("/browse/"):
+        path = ""
+    netloc = parts.netloc
+    return f"{scheme}://{netloc}{path}".rstrip("/")
+
+
+class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        orig = urlsplit(req.full_url)
+        dest = urlsplit(newurl)
+        if (orig.scheme, orig.netloc) != (dest.scheme, dest.netloc):
+            raise urllib.error.HTTPError(
+                req.full_url, code, "refusing cross-host redirect", headers, fp)
+        return urllib.request.HTTPRedirectHandler.redirect_request(
+            self, req, fp, code, msg, headers, newurl)
+
+
+def urlopen(url, headers, timeout=15):
+    """urllib opener that refuses cross-host redirects (keeps Basic auth local)."""
+    opener = urllib.request.build_opener(_SameOriginRedirectHandler())
+    req = urllib.request.Request(url, headers=headers)
+    return opener.open(req, timeout=timeout)
 
 
 def read(paths):
@@ -28,6 +70,7 @@ def read(paths):
 
 
 def write(paths, site, email, token):
+    site = origin(site)
     os.makedirs(paths.local, exist_ok=True)
     payload = json.dumps({"site": site, "email": email, "token": token}, indent=2) + "\n"
     util.atomic_write(paths.jira, payload)
@@ -74,16 +117,19 @@ def check(paths, cfg):
     """GET /rest/api/3/myself. Strictly out of the import path."""
     creds = resolve(paths, cfg)
     auth = auth_header(creds)
-    site = (creds.get("site") or "").rstrip("/")
+    site = (creds.get("site") or "").strip()
     if not site or not auth:
         return {"ok": False, "status": 0, "message": "missing site, email, or token"}
-    url = f"{site}/rest/api/3/myself"
-    req = urllib.request.Request(url, headers={
-        "Authorization": auth,
-        "Accept": "application/json",
-    })
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        site = origin(site)
+    except ValueError as e:
+        return {"ok": False, "status": 0, "message": str(e)}
+    url = f"{site}/rest/api/3/myself"
+    try:
+        with urlopen(url, {
+            "Authorization": auth,
+            "Accept": "application/json",
+        }) as resp:
             return {"ok": True, "status": resp.status, "message": "ok"}
     except urllib.error.HTTPError as e:
         return {"ok": False, "status": e.code, "message": str(e.reason) or str(e)}

@@ -99,7 +99,8 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
           <div class="pane jira">
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
               <mat-label>Site URL</mat-label>
-              <input matInput [(ngModel)]="jiraSite" (ngModelChange)="jiraDirty = true" />
+              <input matInput [(ngModel)]="jiraSite" (ngModelChange)="jiraDirty = true"
+                     placeholder="https://your.atlassian.net" />
             </mat-form-field>
             <mat-form-field appearance="outline" subscriptSizing="dynamic">
               <mat-label>Email</mat-label>
@@ -112,11 +113,17 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
             </mat-form-field>
             <p class="hint">
               Stored in <code>.conveyor/local/jira.json</code>, gitignored.
-              If missing, imports are still created without the ticket body.
+              Use <code>https://your.atlassian.net</code> (not a bare host).
+              Jira import needs site, email, and token. A blank Jira description
+              still creates a row but is not auto-graded.
+              Test writes <code>jira.json</code> first, like
+              <code>conveyor intake jira --site … --test</code>.
             </p>
             <div class="actions">
               <button mat-flat-button [disabled]="!jiraDirty || jiraBusy" (click)="saveJira()">Save Jira</button>
-              <button mat-stroked-button [disabled]="jiraBusy" (click)="testJira()">Test connection</button>
+              <button mat-stroked-button [disabled]="jiraBusy" (click)="testJira()">
+                {{ jiraDirty ? 'Save and test' : 'Test connection' }}
+              </button>
               <button mat-button [disabled]="jiraBusy" (click)="clearJira()">Clear</button>
             </div>
             @if (jiraError) {
@@ -314,9 +321,12 @@ export class IntakeSettingsRailComponent implements OnInit {
   testJira(): void {
     this.jiraBusy = true;
     this.jiraTest = '';
-    this.api.testIntakeJira().subscribe({
+    this.api.testIntakeJira(this.jiraSite, this.jiraEmail, this.jiraToken || undefined).subscribe({
       next: (r) => {
         this.jiraBusy = false;
+        this.jiraDirty = false;
+        this.jiraToken = '';
+        this.jiraTokenSet = r.token_set;
         this.jiraTestOk = r.ok;
         this.jiraTest = r.ok ? `Connected (${r.status})` : `${r.message || 'failed'} (${r.status})`;
       },

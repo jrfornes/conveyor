@@ -23,10 +23,12 @@ role reviewer composer-2.5  max_minutes=60 max_attempts=2
 #   gate specifier
 #   gate none
 
-# Optional inbox adapter. Manual import always works without this.
+# Optional intake ceilings. Jira credentials are not in this file — they
+# live in gitignored .conveyor/local/jira.json (mode 600). Set them with
+#   conveyor intake jira --site https://example.atlassian.net \
+#     --email you@example.com --token-stdin
+# or Inbox → Intake settings → Jira. Manual import works without any of this.
 # [inbox]
-# jira_base = https://example.atlassian.net
-# jira_token_env = JIRA_API_TOKEN
 # ticket_reviewer_model = composer-2.5
 # ticket_reviewer_max_minutes = 30
 # ticket_reviewer_max_attempts = 2

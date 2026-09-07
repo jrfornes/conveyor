@@ -139,7 +139,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
       this.ui.busy.set(true);
       this.api.importTickets(v.source, v.title, v.body).subscribe({
         next: (r) => {
-          this.snack.open(r.message || 'Imported', undefined, { duration: 3000 });
+          this.snack.open(r.message || 'Imported', undefined, { duration: 6000 });
           const ids = (r.message || '')
             .split('\n')
             .map((line) => line.match(/^imported (\S+)/)?.[1])
@@ -150,11 +150,24 @@ export class AppShellComponent implements OnInit, OnDestroy {
               this.ui.refresh();
               return;
             }
-            this.api.intake(ids[i], false).subscribe({
-              next: () => gradeNext(i + 1),
+            this.api.inboxItem(ids[i]).subscribe({
+              next: (item) => {
+                if (!(item.source_md || '').trim()) {
+                  gradeNext(i + 1);
+                  return;
+                }
+                this.api.intake(ids[i], false).subscribe({
+                  next: () => gradeNext(i + 1),
+                  error: (e) => {
+                    this.ui.busy.set(false);
+                    this.ui.fail(e, 'Grade failed');
+                    this.ui.refresh();
+                  },
+                });
+              },
               error: (e) => {
                 this.ui.busy.set(false);
-                this.ui.fail(e, 'Grade failed');
+                this.ui.fail(e, 'Import failed');
                 this.ui.refresh();
               },
             });

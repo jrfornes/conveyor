@@ -125,6 +125,13 @@ class Handler(BaseHTTPRequestHandler):
                     body=body.get("body") or body.get("text") or "",
                 )
                 return self._json(200, {"ok": True, "message": msg})
+            if path == "/api/import/refresh":
+                msg = cli.refresh_import(self.repo_root, body["id"])
+                return self._json(200, {"ok": True, "message": msg})
+            if path == "/api/inbox/source":
+                msg = cli.replace_inbox_source(
+                    self.repo_root, body["id"], body.get("text") or "")
+                return self._json(200, {"ok": True, "message": msg})
             if path == "/api/intake":
                 msg = cli.intake(
                     self.repo_root, body["id"],
@@ -213,7 +220,7 @@ class Handler(BaseHTTPRequestHandler):
                 state.clear_intake_jira(self.repo_root)
                 return self._json(200, {"ok": True})
             if path == "/api/intake/jira/test":
-                return self._json(200, state.test_intake_jira(self.repo_root))
+                return self._json(200, state.test_intake_jira(self.repo_root, body))
             if path == "/api/intake/jira":
                 redacted = state.write_intake_jira(
                     self.repo_root,

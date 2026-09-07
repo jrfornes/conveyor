@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+**Maintenance**
+
+- Jira site URL validation: `https` required (`http://127.0.0.1` / `localhost` for local Jira only); `/browse/KEY` pasted URLs canonicalized; cross-host redirects refused so Basic auth cannot follow a redirect off-site.
+
+**Features**
+
+- Jira import writes metadata, comments, and allowlisted custom fields into `source.md`; ADF lists/links/mentions survive flattening. Empty body still means no spec text (not “no summary”).
+- `conveyor import --refresh <id>` re-fetches a Jira ticket in place; `--replace <id>` overwrites `source.md`. Only `imported` items; re-importing the same key still creates `proj-9-2` and points at `--refresh`. Cockpit: **Fetch again** / **Edit source**.
+
+- Intake → Jira **Test connection** saves the form to `jira.json` then checks credentials (same as `conveyor intake jira --test`).
+- `conveyor.conf.example` no longer documents `jira_base` / `jira_token_env`; operators set Jira in `.conveyor/local/jira.json` (`conveyor intake jira` or the cockpit settings rail). The `[inbox]` keys remain fallbacks only.
+
 ## 0.4.0-rc1 — 2026-09-06
 
 **Thicker 0.x snapshot after `v0.3.0-rc1`. Live Cursor (M3) not verified.**
@@ -13,7 +27,7 @@
 - `conveyor uninstall [--yes] [--bundle]` — runtime teardown for test/dev consumer projects
 - Fail fast with a clear message when any entrypoint is run under Python < 3.10
 - `conveyor-ui` auto-builds the Angular cockpit on first launch when `npm` is on PATH
-- Intake lock is checked before status flips; Grade/Improve disable while ticket-reviewer is busy; empty Jira bodies always reported
+- Intake lock is checked before status flips; Grade/Improve disable while ticket-reviewer is busy; Jira import refuses missing credentials, skips inbox rows on HTTP failure, and reports empty descriptions separately (no auto-grade)
 
 **Out**
 

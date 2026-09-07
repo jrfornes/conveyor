@@ -14,6 +14,7 @@ import { IntakeReviewDialogComponent } from '../dialogs/intake-review-dialog.com
 import { SpecApproveDialogComponent } from '../dialogs/spec-approve-dialog.component';
 import { ImportDialogComponent } from '../dialogs/import-dialog.component';
 import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
+import { EditSourceDialogComponent } from '../dialogs/edit-source-dialog.component';
 
 @Component({
   selector: 'app-cockpit',
@@ -49,6 +50,8 @@ import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
             [intakeBusyTask]="ui.state()?.intake?.task ?? null"
             (toggleIntake)="showIntake = !showIntake"
             (importTickets)="openImport()"
+            (refresh)="refreshImport($event)"
+            (editSource)="openEditSource($event)"
             (grade)="runIntake($event, false)"
             (improve)="runIntake($event, true)"
             (approve)="openIntakeReview($event)"
@@ -160,7 +163,7 @@ export class CockpitComponent {
       this.ui.busy.set(true);
       this.api.importTickets(v.source, v.title, v.body).subscribe({
         next: (r) => {
-          this.snack.open(r.message || 'Imported', undefined, { duration: 3000 });
+          this.snack.open(r.message || 'Imported', undefined, { duration: 6000 });
           const ids = (r.message || '')
             .split('\n')
             .map((line) => line.match(/^imported (\S+)/)?.[1])
@@ -171,11 +174,24 @@ export class CockpitComponent {
               this.ui.refresh();
               return;
             }
-            this.api.intake(ids[i], false).subscribe({
-              next: () => gradeNext(i + 1),
+            this.api.inboxItem(ids[i]).subscribe({
+              next: (item) => {
+                if (!(item.source_md || '').trim()) {
+                  gradeNext(i + 1);
+                  return;
+                }
+                this.api.intake(ids[i], false).subscribe({
+                  next: () => gradeNext(i + 1),
+                  error: (e) => {
+                    this.ui.busy.set(false);
+                    this.ui.fail(e, 'Grade failed');
+                    this.ui.refresh();
+                  },
+                });
+              },
               error: (e) => {
                 this.ui.busy.set(false);
-                this.ui.fail(e, 'Grade failed');
+                this.ui.fail(e, 'Import failed');
                 this.ui.refresh();
               },
             });
@@ -187,6 +203,52 @@ export class CockpitComponent {
           this.ui.fail(e, 'Import failed');
         },
       });
+    });
+  }
+
+  refreshImport(id: string): void {
+    this.ui.busy.set(true);
+    this.api.refreshImport(id).subscribe({
+      next: (r) => {
+        this.ui.busy.set(false);
+        this.snack.open(r.message ?? 'Refreshed', undefined, { duration: 6000 });
+        this.ui.refresh();
+      },
+      error: (e) => {
+        this.ui.busy.set(false);
+        this.snack.open(e?.error?.error ?? 'Fetch again failed', undefined, { duration: 6000 });
+        this.ui.refresh();
+      },
+    });
+  }
+
+  openEditSource(id: string): void {
+    this.api.inboxItem(id).subscribe({
+      next: (item) => {
+        const ref = this.dialog.open(EditSourceDialogComponent, {
+          width: '560px',
+          data: { id: item.id, title: item.title, text: item.source_md || '' },
+        });
+        ref.afterClosed().subscribe((text) => {
+          if (text == null) return;
+          this.ui.busy.set(true);
+          this.api.replaceInboxSource(id, text).subscribe({
+            next: (r) => {
+              this.ui.busy.set(false);
+              this.snack.open(r.message ?? 'Replaced', undefined, { duration: 6000 });
+              this.ui.refresh();
+            },
+            error: (e) => {
+              this.ui.busy.set(false);
+              this.snack.open(e?.error?.error ?? 'Edit source failed', undefined, { duration: 6000 });
+              this.ui.refresh();
+            },
+          });
+        });
+      },
+      error: (e) => {
+        this.ui.fail(e, 'Load failed');
+      },
     });
   }
 
