@@ -72,7 +72,7 @@ import { NewRoleDialogComponent } from '../dialogs/new-role-dialog.component';
               [roleDirty]="roleDirty"
               [projectText]="projectDraft"
               [projectDirty]="projectDirty"
-              [projectGates]="workflow.project_gates ?? []"
+              [projectGates]="workflow.project_gates"
               [constitution]="workflow.constitution"
               [availableSkills]="workflow.available_skills"
               [assignedSkills]="assignedSkills"
