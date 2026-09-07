@@ -134,6 +134,11 @@ Copy items into [`0.4.0-rc1.md`](0.4.0-rc1.md) if they belong in 0.4.
 Stage 5 (board fidelity / chime), Stage 6 (theme), async intake,
 “Run now,” Appendix B.
 
+Named and written, not auto-in a tag:
+[`gate-review.md`](gate-review.md) — held-handoff diff vs intent; reject
+comments stay findings. Not B.5 (per-file comments). Copy a line onto the
+living tag plan if you want it in that snapshot.
+
 Only if you put a named line on the 0.4 plan — otherwise after 1.0,
 and only if M3 + harden still leave a **named** operator pain.
 Release-review already says Stage 5–6 do not block official.
