@@ -32,6 +32,12 @@ plans 3–6 are deliberately not written up front.
 | [0.4.0-rc1](0.4.0-rc1.md) | Intended next tag. Edit Features / Fixes / Maintenance / Out. |
 | [Next chapters](next-chapters.md) | Versioning and work buckets. Next advertised tag is `v0.4.0-rc1`; `v1.0.0` waits on M3. |
 
+## After `v0.4.0-rc1`
+
+| Doc | Use |
+| --- | --- |
+| [Log pane mirror](log-pane-mirror.md) | F9 against jsonl: `conveyor log -f`, live dark pane, pop-out `/agents/:role`. Not tmux / B.2. **planned** |
+
 ## Scans
 
 | Doc | Use |
