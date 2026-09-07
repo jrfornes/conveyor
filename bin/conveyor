@@ -201,12 +201,7 @@ def cmd_init(args):
     if not os.path.exists(conf):
         shutil.copy(os.path.join(target, "conveyor.conf.example"), conf)
         print("wrote conveyor.conf from the example; edit in the two model names before `conveyor start`")
-    gi = os.path.join(target, ".gitignore")
-    have = util.read_text(gi).splitlines() if os.path.exists(gi) else []
-    missing = [e for e in GITIGNORE if e not in have]
-    if missing:
-        with open(gi, "a") as f:
-            f.write(("" if not have or have[-1] == "" else "\n") + "\n".join(missing) + "\n")
+    append_gitignore(os.path.join(target, ".gitignore"))
     print(f"Conveyor bundle installed in {target}")
     print("Next: edit project.md and conveyor.conf, review `git status`, commit, then `conveyor start`.")
 
@@ -535,18 +530,43 @@ TRACKED_RULES = (
     "Untrack it on each branch listed, then re-run:\n"
     "  git rm --cached {rel} && git commit -m 'Untrack conveyor role rules file'"
 )
+GITIGNORE_COMMIT = "Ignore Conveyor runtime paths"
+
+
+def append_gitignore(path):
+    """Add any missing GITIGNORE lines. Returns the lines appended."""
+    have = util.read_text(path).splitlines() if os.path.exists(path) else []
+    missing = [e for e in GITIGNORE if e not in have]
+    if missing:
+        with open(path, "a") as f:
+            f.write(("" if not have or have[-1] == "" else "\n") + "\n".join(missing) + "\n")
+    return missing
+
+
+def committed_gitignore(cwd):
+    """HEAD:.gitignore lines; empty when the file (or HEAD) does not exist."""
+    return util.git(["show", "HEAD:.gitignore"], cwd, check=False).splitlines()
+
+
+def ensure_committed_gitignore(cwd, what="conveyor start"):
+    """ISO-5: role worktrees only see committed ignores. Init appends to the
+    working copy; start makes that commit so a skipped `git commit` cannot
+    leak generated files into a handoff. Returns entries that were missing
+    from HEAD (empty when the committed file was already complete)."""
+    append_gitignore(os.path.join(cwd, ".gitignore"))
+    missing = [e for e in GITIGNORE if e not in committed_gitignore(cwd)]
+    if missing:
+        commit_file(cwd, ".gitignore", GITIGNORE_COMMIT, what)
+    return missing
 
 
 def check_ignores(root, cfg):
-    """The role worktrees check out the *committed* .gitignore, so that -- not the
-    integration tree's working copy -- decides what an agent can commit. Reading the
-    working copy would pass an entry `conveyor init` appended but nobody committed,
-    which is exactly how a generated rules file reaches a commit."""
-    committed = util.git(["show", "HEAD:.gitignore"], root, check=False).splitlines()
-    for entry in GITIGNORE:
-        if entry not in committed:
-            print(f"warning: committed .gitignore lacks {entry} (add it and commit; the role "
-                  f"worktrees only see what is committed)")
+    """Commit any missing GITIGNORE entries on the integration tree, then refuse
+    a tracked role-rules file. The working copy is not enough: worktrees check
+    out HEAD:.gitignore."""
+    missing = ensure_committed_gitignore(root)
+    if missing:
+        print(f"committed .gitignore ({', '.join(missing)})")
     refs = [r for r in ["HEAD", *(f"conveyor-{r.name}" for r in cfg.roles)]
             if util.git(["ls-tree", "-r", "--name-only", r, "--", RULES_REL], root, check=False)]
     if refs:
@@ -575,13 +595,24 @@ def cmd_start(args):
         v = subprocess.run([agent, "--version"], capture_output=True, text=True).stdout.strip()
         if cfg.agent_version not in v:
             print(f"warning: agent version {v!r} differs from configured {cfg.agent_version!r}")
+    install_hook(root)  # so a gitignore commit is signed By operator.
     check_ignores(root, cfg)
     paths.ensure(cfg)
     presets.ensure_seeded(paths)
-    install_hook(root)
     prune_stale_worktrees(root, cfg, paths)
     for role in cfg.roles:
         wt = ensure_worktree(root, paths, role.name)
+        # New worktrees are born from HEAD and already have the commit. An
+        # existing idle branch may predate it; a live loop must not be moved.
+        if loop_pid(paths, role.name):
+            leftover = [e for e in GITIGNORE if e not in committed_gitignore(wt)]
+            if leftover:
+                print(f"warning: committed .gitignore on conveyor-{role.name} lacks "
+                      f"{', '.join(leftover)}; stop the loop and re-run conveyor start")
+        else:
+            leftover = ensure_committed_gitignore(wt)
+            if leftover:
+                print(f"committed .gitignore on conveyor-{role.name} ({', '.join(leftover)})")
         rp = paths.role(role.name)
         if os.path.exists(rp.stop):
             os.remove(rp.stop)

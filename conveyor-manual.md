@@ -130,7 +130,7 @@ The orchestrator drops into an existing codebase. **Runtime state** is gitignore
   worktree; install the shared `commit-msg` byline hook.
 - Prepend `bin/` to `PATH` for agent processes so `handoff.sh` is callable from the worktree
   root; scripts are not copied into worktrees.
-- Gitignore `.worktrees/`, `.conveyor/`, `.cursor/rules/conveyor-role.mdc`, and `tmp/`.
+- Gitignore `.worktrees/`, `.conveyor/`, `.cursor/rules/conveyor-role.mdc`, and `tmp/`. `conveyor start` commits those entries if they are missing from `HEAD:.gitignore` (role worktrees only see what is committed).
 - Export `CONVEYOR_ROLE`, `CONVEYOR_WORKTREE`, `CONVEYOR_ROOT`; every helper reads identity
   from env, never from agent arguments.
 - Confine scratch to `./tmp/` inside the worktree; `handoff.sh` rejects draft paths outside
