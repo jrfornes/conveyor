@@ -17,6 +17,7 @@ conveyor init [<path>] | uninstall [--yes] [--bundle]
                     | edit <slug> [...] | delete <slug> | activate <slug>
            | gate list | run <name> [--role <role>]
 """
+import contextlib
 import json
 import os
 import shutil
@@ -71,6 +72,45 @@ def install_hook(root):
     os.makedirs(hooks, exist_ok=True)
     shutil.copy(os.path.join(BIN, "hooks", "commit-msg"), os.path.join(hooks, "commit-msg"))
     os.chmod(os.path.join(hooks, "commit-msg"), 0o755)
+
+
+NO_IDENTITY = ('git has no commit identity in {root}; set one and retry:\n'
+               '  git config --global user.name "Your Name"\n'
+               '  git config --global user.email "you@example.com"')
+
+
+def commit_env():
+    """Operator env for a git commit: never carry a role into the byline hook."""
+    return {k: v for k, v in os.environ.items() if k != "CONVEYOR_ROLE"}
+
+
+def git_identity(root, env=None):
+    """Refuse before any write when git cannot name a committer (protocol §7.4)."""
+    return subprocess.run(["git", "var", "GIT_COMMITTER_IDENT"], cwd=root,
+                          env=env or commit_env(), capture_output=True).returncode == 0
+
+
+def commit_file(root, rel, message, what, rollback=None):
+    """Stage and commit rel as the operator, leaving nothing staged when it fails."""
+    env = commit_env()
+    if not git_identity(root, env):
+        _rollback(root, rel, rollback)
+        util.die(f"{what}: " + NO_IDENTITY.format(root=root))
+    util.git(["add", "--", rel], root)
+    r = subprocess.run(["git", "commit", "-q", "-m", message, "--", rel], cwd=root, env=env,
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        _rollback(root, rel, rollback)
+        detail = (r.stderr or r.stdout or "").strip()
+        util.die(f"{what}: git commit failed ({r.returncode})" + (f"\n{detail}" if detail else ""))
+
+
+def _rollback(root, rel, path):
+    """Unstage rel (and drop the file we wrote) so the next attempt starts clean."""
+    util.git(["reset", "-q", "--", rel], root, check=False)
+    if path:
+        with contextlib.suppress(OSError):
+            os.remove(path)
 
 
 def ensure_worktree(root, paths, role_name):
@@ -492,6 +532,8 @@ def cmd_start(args):
         if not os.path.isfile(os.path.join(root, "roles", f"{r.name}.md")):
             util.die(f"conveyor start: roles/{r.name}.md is missing")
     validate_project_gates(root, cfg)
+    if not git_identity(root):
+        util.die("conveyor start: " + NO_IDENTITY.format(root=root))
     try:
         listed = agentlib.list_models(agent)
     except agentlib.AgentError as e:
@@ -590,11 +632,9 @@ def cmd_task(args):
     rel = f"tasks/{name}.md"
     os.makedirs(os.path.join(root, "tasks"), exist_ok=True)
     util.atomic_write(os.path.join(root, rel), text)
-    util.git(["add", rel], root)
-    if util.git(["status", "--porcelain", rel], root):
-        env = {k: v for k, v in os.environ.items() if k != "CONVEYOR_ROLE"}
-        subprocess.run(["git", "commit", "-q", "-m", f"Add task {name}", "--", rel], cwd=root,
-                       env=env, check=True)
+    util.git(["add", "--", rel], root)
+    if util.git(["status", "--porcelain", "--", rel], root):
+        commit_file(root, rel, f"Add task {name}", "conveyor task")
     headers = enqueue_task(root, cfg, paths, name)
     print(f"{headers['id']} queued for {headers['to']}")
 
@@ -1138,6 +1178,17 @@ def cmd_inbox_attachments(args):
         print(attachments.format_list_line(row))
 
 
+def _own_debris(root, rel, body):
+    """True when rel is a leftover from an approve that died before committing:
+    byte-identical to what we would write now, and absent from HEAD."""
+    try:
+        if util.read_text(os.path.join(root, rel)) != body:
+            return False
+    except OSError:
+        return False
+    return not util.git_ok(["cat-file", "-e", f"HEAD:{rel}"], root)
+
+
 def cmd_inbox(args):
     if not args or args[0] not in ("list", "show", "approve", "skip", "attachments"):
         util.die(INBOX_USAGE)
@@ -1183,14 +1234,15 @@ def cmd_inbox(args):
         util.die("conveyor inbox approve: no proposed-task.md or source.md to write")
     rel = f"tasks/{task}.md"
     dest = os.path.join(root, rel)
-    if os.path.exists(dest):
-        util.die(f"conveyor inbox approve: {rel} already exists")
+    body = text + ("\n" if not text.endswith("\n") else "")
+    if os.path.exists(dest) and not _own_debris(root, rel, body):
+        hint = "approve under another name with --name <task>"
+        if not util.git_ok(["cat-file", "-e", f"HEAD:{rel}"], root):
+            hint = f"it is uncommitted and differs; remove it or {hint}"
+        util.die(f"conveyor inbox approve: {rel} already exists ({hint})")
     os.makedirs(os.path.join(root, "tasks"), exist_ok=True)
-    util.atomic_write(dest, text + ("\n" if not text.endswith("\n") else ""))
-    util.git(["add", rel], root)
-    env = {k: v for k, v in os.environ.items() if k != "CONVEYOR_ROLE"}
-    subprocess.run(["git", "commit", "-q", "-m", f"Add task {task}", "--", rel], cwd=root,
-                   env=env, check=True)
+    util.atomic_write(dest, body)
+    commit_file(root, rel, f"Add task {task}", "conveyor inbox approve", rollback=dest)
     inbox.update_meta(paths, iid, status="ready", task_name=task)
     print(f"approved {iid} → {rel} (not enqueued; run conveyor start-task {task})")
 

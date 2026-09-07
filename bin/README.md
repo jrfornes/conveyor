@@ -347,6 +347,17 @@ Where the protocol left a choice, the refusing option was taken.
     are not committed yet. Without this the next line crashed writing
     `tmp/source.md`, leaving a traceback where a graded item should be.
 
+40. **Operator commits are preflighted, and a half-written approve is undone.**
+    `conveyor task`, `conveyor inbox approve`, and `conveyor start` refuse with
+    the `git config user.name/user.email` repair text when
+    `git var GIT_COMMITTER_IDENT` fails, instead of letting `git commit` exit
+    128 mid-command (the cockpit surfaced that as a raw traceback). If the
+    commit still fails, the path is unstaged and the file `inbox approve` just
+    wrote is removed, so the item stays approvable. A `tasks/<task>.md` that is
+    absent from HEAD and byte-identical to the text being approved is adopted
+    as leftover from an interrupted attempt; anything else still refuses with
+    `already exists`, because approve must never overwrite an operator's file.
+
 ## Not built (PRD Appendix B)
 
 Nothing from Appendix B is implemented except the partial B.3/B.5 pieces

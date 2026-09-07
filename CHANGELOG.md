@@ -49,6 +49,10 @@
   `--improve`, `--comments`, `--force`, and `start-task`; `inbox:` in the §6 status sample; a new
   §9 upgrade note.
 
+**Fixes**
+
+- Approving an inbox item in a repo with no git identity failed mid-command: the task file was already written and staged, the cockpit showed a raw `CalledProcessError` traceback, and the next click died with `tasks/<task>.md already exists`. `conveyor task`, `conveyor inbox approve`, and `conveyor start` now check `git var GIT_COMMITTER_IDENT` first and print the `git config user.name/user.email` repair; a failed commit unstages (and, for approve, deletes) what it wrote; and an uncommitted `tasks/<task>.md` identical to the text being approved is adopted instead of refused.
+
 **Maintenance**
 
 - Jira site URL validation: `https` required (`http://127.0.0.1` / `localhost` for local Jira only); `/browse/KEY` pasted URLs canonicalized; cross-host redirects refused so Basic auth cannot follow a redirect off-site.
