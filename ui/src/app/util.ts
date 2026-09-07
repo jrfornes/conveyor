@@ -54,3 +54,65 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 48);
 }
+
+export interface ImportResultRow {
+  id: string;
+  title: string;
+}
+
+export interface ImportFailureRow {
+  key: string;
+  detail: string;
+}
+
+/** Parsed stdout from `conveyor import` / `conveyor import --refresh`. */
+export interface ImportSummary {
+  imported: ImportResultRow[];
+  refreshed: ImportResultRow[];
+  failed: ImportFailureRow[];
+  notices: string[];
+}
+
+const IMPORTED_RE = /^imported (\S+)\s{2,}(.+)$/;
+const REFRESHED_RE = /^refreshed (\S+)\s{2,}(.+)$/;
+const FAILED_RE = /^failed (\S+)\s{2,}(.+)$/;
+const NOTICE_RE = /^notice: (.+)$/;
+
+/** Split CLI import output into structured rows for the summary dialog. */
+export function parseImportMessage(message: string): ImportSummary {
+  const summary: ImportSummary = {
+    imported: [],
+    refreshed: [],
+    failed: [],
+    notices: [],
+  };
+  for (const line of (message || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const imported = trimmed.match(IMPORTED_RE);
+    if (imported) {
+      summary.imported.push({ id: imported[1], title: imported[2] });
+      continue;
+    }
+    const refreshed = trimmed.match(REFRESHED_RE);
+    if (refreshed) {
+      summary.refreshed.push({ id: refreshed[1], title: refreshed[2] });
+      continue;
+    }
+    const failed = trimmed.match(FAILED_RE);
+    if (failed) {
+      summary.failed.push({ key: failed[1], detail: failed[2] });
+      continue;
+    }
+    const notice = trimmed.match(NOTICE_RE);
+    if (notice) {
+      summary.notices.push(notice[1]);
+      continue;
+    }
+  }
+  return summary;
+}
+
+export function importedIds(summary: ImportSummary): string[] {
+  return summary.imported.map((row) => row.id);
+}

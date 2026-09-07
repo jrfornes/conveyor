@@ -16,6 +16,7 @@ import { ImportDialogComponent } from '../dialogs/import-dialog.component';
 import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
 import { EditSourceDialogComponent } from '../dialogs/edit-source-dialog.component';
 import { AttachmentsDialogComponent } from '../dialogs/attachments-dialog.component';
+import { openImportSummary, runPostImportGrading } from '../import-flow';
 
 @Component({
   selector: 'app-cockpit',
@@ -165,40 +166,8 @@ export class CockpitComponent {
       this.ui.busy.set(true);
       this.api.importTickets(v.source, v.title, v.body).subscribe({
         next: (r) => {
-          this.snack.open(r.message || 'Imported', undefined, { duration: 6000 });
-          const ids = (r.message || '')
-            .split('\n')
-            .map((line) => line.match(/^imported (\S+)/)?.[1])
-            .filter((x): x is string => !!x);
-          const gradeNext = (i: number) => {
-            if (!v.grade || i >= ids.length) {
-              this.ui.busy.set(false);
-              this.ui.refresh();
-              return;
-            }
-            this.api.inboxItem(ids[i]).subscribe({
-              next: (item) => {
-                if (!(item.source_md || '').trim()) {
-                  gradeNext(i + 1);
-                  return;
-                }
-                this.api.intake(ids[i], false).subscribe({
-                  next: () => gradeNext(i + 1),
-                  error: (e) => {
-                    this.ui.busy.set(false);
-                    this.ui.fail(e, 'Grade failed');
-                    this.ui.refresh();
-                  },
-                });
-              },
-              error: (e) => {
-                this.ui.busy.set(false);
-                this.ui.fail(e, 'Import failed');
-                this.ui.refresh();
-              },
-            });
-          };
-          gradeNext(0);
+          openImportSummary(this.dialog, r.message || 'Imported');
+          runPostImportGrading(this.api, this.ui, r.message || '', v.grade);
         },
         error: (e) => {
           this.ui.busy.set(false);
@@ -213,7 +182,7 @@ export class CockpitComponent {
     this.api.refreshImport(id).subscribe({
       next: (r) => {
         this.ui.busy.set(false);
-        this.snack.open(r.message ?? 'Refreshed', undefined, { duration: 6000 });
+        openImportSummary(this.dialog, r.message ?? 'Refreshed', 'Refresh complete');
         this.ui.refresh();
       },
       error: (e) => {
