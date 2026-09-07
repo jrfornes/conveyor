@@ -2,7 +2,6 @@ import { Component } from '@angular/core';
 import { Router, RouterModule } from '@angular/router';
 import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { forkJoin } from 'rxjs';
 import { ConveyorApiService } from '../services/conveyor-api.service';
 import { UiStateService } from '../services/ui-state.service';
 import { InboxItem } from '../models';
@@ -11,12 +10,9 @@ import { KanbanBoardComponent } from '../kanban-board/kanban-board.component';
 import { InboxTableComponent } from '../inbox-table/inbox-table.component';
 import { IntakeSettingsRailComponent } from '../intake/intake-settings-rail.component';
 import { TaskDetailDialogComponent } from '../dialogs/task-detail-dialog.component';
-import { IntakeReviewDialogComponent } from '../dialogs/intake-review-dialog.component';
 import { SpecApproveDialogComponent } from '../dialogs/spec-approve-dialog.component';
 import { ImportDialogComponent } from '../dialogs/import-dialog.component';
 import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
-import { EditSourceDialogComponent } from '../dialogs/edit-source-dialog.component';
-import { AttachmentsDialogComponent } from '../dialogs/attachments-dialog.component';
 import { openImportSummary, runPostImportGrading } from '../import-flow';
 
 @Component({
@@ -38,7 +34,6 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
       [approvals]="ui.state()?.approvals ?? []"
       (resume)="resume($event)"
       (deleteTask)="deleteTask($event)"
-      (intakeApprove)="openIntakeReview($event)"
       (specApprove)="openSpecApprove($event)"
     ></app-attention-strip>
 
@@ -52,14 +47,8 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
             [intakeBusyTask]="ui.state()?.intake?.task ?? null"
             (toggleIntake)="showIntake = !showIntake"
             (importTickets)="openImport()"
-            (refresh)="refreshImport($event)"
-            (editSource)="openEditSource($event)"
-            (attachments)="openAttachments($event)"
             (grade)="runIntake($event, false)"
-            (improve)="runIntake($event, true)"
-            (approve)="openIntakeReview($event)"
             (start)="startWorking($event)"
-            (skip)="mutate('inbox-skip', { id: $event })"
           ></app-inbox-table>
         </div>
         @if (showIntake) {
@@ -188,131 +177,8 @@ export class CockpitComponent {
     });
   }
 
-  refreshImport(id: string): void {
-    this.ui.busy.set(true);
-    this.api.refreshImport(id).subscribe({
-      next: (r) => {
-        this.ui.busy.set(false);
-        openImportSummary(this.dialog, r.message ?? 'Refreshed', 'Refresh complete');
-        this.ui.refresh();
-      },
-      error: (e) => {
-        this.ui.busy.set(false);
-        this.snack.open(e?.error?.error ?? 'Fetch again failed', undefined, { duration: 6000 });
-        this.ui.refresh();
-      },
-    });
-  }
-
-  openEditSource(id: string): void {
-    this.api.inboxItem(id).subscribe({
-      next: (item) => {
-        const ref = this.dialog.open(EditSourceDialogComponent, {
-          width: '560px',
-          data: { id: item.id, title: item.title, text: item.source_md || '' },
-        });
-        ref.afterClosed().subscribe((text) => {
-          if (text == null) return;
-          this.ui.busy.set(true);
-          this.api.replaceInboxSource(id, text).subscribe({
-            next: (r) => {
-              this.ui.busy.set(false);
-              this.snack.open(r.message ?? 'Replaced', undefined, { duration: 6000 });
-              this.ui.refresh();
-            },
-            error: (e) => {
-              this.ui.busy.set(false);
-              this.snack.open(e?.error?.error ?? 'Edit source failed', undefined, { duration: 6000 });
-              this.ui.refresh();
-            },
-          });
-        });
-      },
-      error: (e) => {
-        this.ui.fail(e, 'Load failed');
-      },
-    });
-  }
-
-  openAttachments(id: string): void {
-    this.api.inboxItem(id).subscribe({
-      next: (item) => {
-        const ref = this.dialog.open(AttachmentsDialogComponent, {
-          width: '560px',
-          data: {
-            id: item.id,
-            title: item.title,
-            url: item.url,
-            attachments: item.attachments || [],
-          },
-        });
-        ref.afterClosed().subscribe((select) => {
-          if (select == null) return;
-          this.ui.busy.set(true);
-          this.api.inboxAttachments(id, select).subscribe({
-            next: (r) => {
-              this.ui.busy.set(false);
-              this.snack.open(r.message || 'Attachments updated', undefined, { duration: 4000 });
-              this.ui.refresh();
-            },
-            error: (e) => {
-              this.ui.busy.set(false);
-              this.snack.open(e?.error?.error ?? 'Attachments failed', undefined, { duration: 6000 });
-              this.ui.refresh();
-            },
-          });
-        });
-      },
-      error: (e) => {
-        this.ui.fail(e, 'Load failed');
-      },
-    });
-  }
-
   runIntake(id: string, improve: boolean): void {
     this.mutate('intake', { id, improve });
-  }
-
-  openIntakeReview(id: string): void {
-    forkJoin({
-      item: this.api.inboxItem(id),
-      settings: this.api.intakeSettings(),
-    }).subscribe({
-      next: ({ item, settings }) => {
-        const ref = this.dialog.open(IntakeReviewDialogComponent, {
-          width: '900px',
-          maxWidth: '95vw',
-          panelClass: 'intake-review-dialog',
-          data: {
-            ...item,
-            rubric: settings.rubric,
-            grade_contract: settings.grade_contract,
-          },
-        });
-        ref.afterClosed().subscribe((v) => {
-          if (!v) return;
-          if (v.action === 'skip') this.mutate('inbox-skip', { id });
-          else if (v.action === 'reject') this.mutate('intake', { id, improve: true, comments: v.comments });
-          else if (v.action === 'approve' || v.action === 'edit-approve') {
-            this.ui.busy.set(true);
-            this.api.inboxApprove(id, v.name, v.action === 'edit-approve' ? v.text : undefined).subscribe({
-              next: (r) => {
-                this.ui.busy.set(false);
-                this.snack.open(r.message ?? 'OK', undefined, { duration: 3000 });
-                this.ui.refresh();
-              },
-              error: (e) => {
-                this.ui.busy.set(false);
-                this.ui.fail(e, 'Approve failed');
-              },
-            });
-          }
-        });
-      },
-      error: (e) => {
-        this.ui.fail(e, 'Load failed');
-      },
-    });
   }
 
   openSpecApprove(id: string): void {
@@ -423,9 +289,6 @@ export class CockpitComponent {
         req = this.api.intake(p.id, !!p.improve, p.comments);
         break;
       }
-      case 'inbox-skip':
-        req = this.api.inboxSkip((payload as { id: string }).id);
-        break;
       case 'approve':
         req = this.api.approve((payload as { id: string }).id);
         break;

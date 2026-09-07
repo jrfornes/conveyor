@@ -31,7 +31,9 @@ class UiDemo(unittest.TestCase):
         self.assertEqual(rows["stuck"]["lane"], "needs-human")
         self.assertTrue(os.path.isfile(os.path.join(paths.needs_human, "stuck", "reason")))
         self.assertIn("sample-ticket", inbox.list_ids(paths))
+        self.assertIn("cave-lights", inbox.list_ids(paths))
         self.assertEqual(inbox.read_meta(paths, "proj-9")["source"], "jira")
+        self.assertEqual(inbox.read_meta(paths, "cave-lights")["status"], "awaiting-approval")
         slugs = {p["slug"] for p in presets.load_all(paths)}
         self.assertIn("review-belt", slugs)
 
@@ -40,13 +42,18 @@ class UiDemo(unittest.TestCase):
         self.assertTrue(any(t["name"] == "demo" for t in snap["tasks"]))
         self.assertTrue(any(t["name"] == "stuck" for t in snap["tasks"]))
         self.assertTrue(any(i["id"] == "sample-ticket" for i in snap["inbox"]))
-        self.assertTrue(any(i["id"] == "proj-9" and i["source"] == "jira" for i in snap["inbox"]))
+        self.assertTrue(any(i["id"] == "cave-lights" and i["status"] == "awaiting-approval"
+                            for i in snap["inbox"]))
         row = next(i for i in snap["inbox"] if i["id"] == "proj-9")
         self.assertEqual(row["attachment_count"], 2)
         self.assertEqual(row["video_count"], 1)
         self.assertEqual(row["selected_count"], 1)
         self.assertTrue(snap["needs_human"])
         self.assertEqual(snap["workflow"]["id"], "review-belt")
+        detail = state.read_inbox_item(self.fx.root, "cave-lights")
+        self.assertIn("Grade: Ready", detail["grade_md"])
+        self.assertTrue(detail["proposed_md"])
+        self.assertIn("definition of done", detail["comments_applied"])
 
 
 class UiDemoCli(unittest.TestCase):
