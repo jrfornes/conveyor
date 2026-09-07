@@ -111,6 +111,7 @@ High `audit` with low `retry` means the coder is being challenged and fixing thi
 ## 7. Recovery
 
 - **Machine rebooted / loops killed:** `conveyor start`. Anything in `in_process/` resumes; anything in `outbox/` is delivered; nothing is duplicated.
+- **Merge conflict between roles:** parked with reason `merge-conflict` when the receiving role could not merge the inbound commit into `conveyor-<role>`. The loop aborts the merge, so that worktree looks clean — nothing is left conflicted to inspect. Reproduce it in `.worktrees/<role>` with `git merge --no-commit --no-ff <commit>` (the commit is on the second line of `.conveyor/needs-human/<task>/reason`), then resolve it as a real merge with `CONVEYOR_ROLE=<role>` set so the merge commit is signed `By <role>.`, and `conveyor resume <task>`.
 - **Merge conflict on `pass`:** parked with reason `merge-conflict`. Resolve on `main` by hand (commit gets `By operator.`), then `conveyor resume <task>`.
 - **Two files in `in_process/`:** the loop refuses to start and says so. Move one back to `new/` by hand; this only happens after manual edits.
 - **Agent keeps failing to hand off:** read the log; usually a validator error it did not follow. After `max_attempts` it parks. Fix the prompt or the task, `conveyor resume`.

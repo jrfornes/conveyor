@@ -614,7 +614,7 @@ board: lane=needs-human, updated_at
 
 ### 7.1 Usage
 
-`merge.sh <commit>` with cwd = worktree, env as §6. Exit 0 = merged or already present; exit 1 = conflict (tree left in conflicted state for the operator; the loop parks).
+`merge.sh <commit>` with cwd = worktree, env as §6. Exit 0 = merged or already present; exit 1 = conflict (the merge is aborted and the worktree is left clean; the loop parks).
 
 ### 7.2 Algorithm
 
@@ -627,6 +627,8 @@ git merge --no-edit <commit>
 ```
 
 `--no-ff` is not used; fast-forwards are fine and keep history linear when only one role has moved.
+
+Because the conflict is aborted rather than left on disk, a `merge-conflict` park leaves nothing conflicted for the operator to inspect: the worktree looks clean. Reproduce it there with `git merge --no-commit --no-ff <commit>`, then resolve it as an ordinary manual merge with `CONVEYOR_ROLE` set, so the merge commit carries that role's byline (§7.4). The ancestor check above then makes the loop's next merge after `conveyor resume` a no-op.
 
 ### 7.3 Integration on `done`
 
