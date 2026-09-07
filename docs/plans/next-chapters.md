@@ -135,9 +135,14 @@ Stage 5 (board fidelity / chime), Stage 6 (theme), async intake,
 “Run now,” Appendix B.
 
 Named and written, not auto-in a tag:
-[`gate-review.md`](gate-review.md) — held-handoff diff vs intent; reject
-comments stay findings. Not B.5 (per-file comments). Copy a line onto the
-living tag plan if you want it in that snapshot.
+
+- [`gate-review.md`](gate-review.md) — held-handoff diff vs intent; reject
+  comments stay findings. Not B.5 (per-file comments).
+- [`work-queue-liveness.md`](work-queue-liveness.md) — per-role
+  busy/idle/stopped/stalled/dead; `status` is the contract. Not a watchdog.
+- [`log-pane-mirror.md`](log-pane-mirror.md) — jsonl as the F9 pane.
+
+Copy a line onto the living tag plan if you want it in that snapshot.
 
 Only if you put a named line on the 0.4 plan — otherwise after 1.0,
 and only if M3 + harden still leave a **named** operator pain.

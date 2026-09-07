@@ -37,6 +37,7 @@ plans 3–6 are deliberately not written up front.
 
 | Doc | Use |
 | --- | --- |
+| [Work-queue liveness](work-queue-liveness.md) | Per-role `busy` / `idle` / `stopped` / `stalled` / `dead`. `status` is the contract. Not a watchdog / B.2. **planned** |
 | [Log pane mirror](log-pane-mirror.md) | F9 against jsonl: `conveyor log -f`, live dark pane, pop-out `/agents/:role`. Not tmux / B.2. **planned** |
 
 ## Scans
