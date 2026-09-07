@@ -244,7 +244,7 @@ Ship after M4. Then pick from Appendix B.
 
 1. Reviewer edits: strictly none (current), or allowed to fix trivial issues (formatting) and forward?
 2. Should the coder be allowed to reply to findings with a rationale for *not* changing something, and does the reviewer then have to accept it?
-3. ~~Merge into `main` on reviewer pass automatically, or leave the branch?~~ Resolved: auto-merge (protocol §7.3). Revisit if disagreed.
+3. ~~Merge into `main` on reviewer pass automatically, or leave the branch?~~ Resolved: configurable via `[global] integration` — `merge` (default), `hold` (leave the branch), or `command: <cmd>` (hand off to a hook, e.g. open a PR). See protocol §7.3.
 4. Shell vs. one scripting language for the loops. Criteria: file locks and atomic rename ergonomics.
 
 ---

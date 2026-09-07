@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Conveyor integration hook — open a Bitbucket Cloud PR on `done`.
+
+Wire it up in the target project's conveyor.conf:
+
+    [global]
+    integration      = command: python3 .conveyor/local/bitbucket-pr
+    integration_base = develop        # optional; omit to target the current checkout
+
+Copy this file to the project's .conveyor/local/ (gitignored) and put credentials
+beside it in .conveyor/local/bitbucket.json (mode 600), mirroring jira.json:
+
+    { "workspace": "myteam", "repo_slug": "myrepo",
+      "email": "you@corp.com", "token": "<atlassian-api-token>", "remote": "origin" }
+
+Auth is Basic base64(email:api_token) — the same Atlassian API-token model as Jira.
+Conveyor passes CONVEYOR_ROOT / CONVEYOR_TASK / CONVEYOR_COMMIT / CONVEYOR_BASE in the
+environment. Exit 0 = PR open (created or already existed); nonzero = conveyor parks
+the task with reason `done-command` for `conveyor resume`.
+"""
+import base64
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+root = os.environ["CONVEYOR_ROOT"]
+task = os.environ["CONVEYOR_TASK"]
+commit = os.environ["CONVEYOR_COMMIT"]
+base = os.environ.get("CONVEYOR_BASE") or "main"
+source = task  # per convention: source branch on Bitbucket = <task>
+
+creds_path = os.path.join(root, ".conveyor", "local", "bitbucket.json")
+try:
+    cfg = json.load(open(creds_path, encoding="utf-8"))
+except (OSError, ValueError) as e:
+    sys.exit(f"bitbucket-pr: cannot read {creds_path}: {e}")
+try:
+    ws, repo = cfg["workspace"], cfg["repo_slug"]
+    email, token = cfg["email"], cfg["token"]
+except KeyError as e:
+    sys.exit(f"bitbucket-pr: {creds_path} missing key {e}")
+remote = cfg.get("remote", "origin")
+auth = "Basic " + base64.b64encode(f"{email}:{token}".encode()).decode()
+
+
+def api(method, path, body=None):
+    url = f"https://api.bitbucket.org/2.0/repositories/{ws}/{repo}{path}"
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Authorization": auth, "Accept": "application/json"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return r.status, json.loads(r.read() or "{}")
+
+
+def git(*args):
+    subprocess.run(["git", *args], cwd=root, check=True)
+
+
+# 1. Push the reviewed commit to the PR source branch. Force-to-SHA so a re-run
+#    (conveyor recovering a crash before the item reached sent/) is a no-op.
+git("push", remote, f"+{commit}:refs/heads/{source}")
+
+# 2. Reuse an already-open PR for this source branch; otherwise create one.
+q = urllib.parse.quote(f'source.branch.name="{source}" AND state="OPEN"')
+_, found = api("GET", f"/pullrequests?q={q}")
+if found.get("values"):
+    print(found["values"][0]["links"]["html"]["href"])
+    sys.exit(0)
+
+desc = subprocess.run(["git", "log", "-1", "--format=%B", commit], cwd=root,
+                      capture_output=True, text=True).stdout.strip()
+try:
+    _, pr = api("POST", "/pullrequests", {
+        "title": task,
+        "source": {"branch": {"name": source}},
+        "destination": {"branch": {"name": base}},
+        "description": desc,
+        "close_source_branch": True,
+    })
+except urllib.error.HTTPError as e:
+    sys.exit(f"bitbucket-pr: create PR failed ({e.code}): {e.read().decode(errors='replace')}")
+print(pr["links"]["html"]["href"])

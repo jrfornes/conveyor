@@ -49,7 +49,13 @@ class Config:
     agent_args: list = field(default_factory=list)
     poll_seconds: float = 2.0
     agent_version: str = ""
+    integration: str = "merge"      # "merge" | "hold" | "command: <cmd>"
+    integration_base: str = ""      # optional PR/merge target for command mode
     inbox: InboxConf = field(default_factory=InboxConf)
+
+    def integration_parts(self):
+        """(kind, command): kind in {merge, hold, command}; command set only for command."""
+        return integration_parts(self.integration)
 
     def role(self, name):
         for r in self.roles:
@@ -183,6 +189,9 @@ def load(root):
     if "poll_seconds" in glob:
         cfg.poll_seconds = float(glob["poll_seconds"])
     cfg.agent_version = glob.get("agent_version", "")
+    cfg.integration = glob.get("integration", "merge").strip() or "merge"
+    integration_parts(cfg.integration)  # validate; raises ConfigError on a bad value
+    cfg.integration_base = glob.get("integration_base", "").strip()
     cfg.inbox = InboxConf(
         jira_base=inbox.get("jira_base", ""),
         jira_token_env=inbox.get("jira_token_env", ""),
@@ -191,6 +200,25 @@ def load(root):
         ticket_reviewer_max_attempts=_inbox_int(inbox, "ticket_reviewer_max_attempts"),
     )
     return cfg
+
+
+def integration_parts(value):
+    """(kind, command) for a [global] `integration` value.
+
+    kind is "merge", "hold", or "command"; command is the shell command for
+    command mode, "" otherwise. Raises ConfigError on an unrecognised value."""
+    v = (value or "merge").strip()
+    if v in ("merge", "hold"):
+        return v, ""
+    if v.startswith("command:"):
+        cmd = v[len("command:"):].strip()
+        if not cmd:
+            raise ConfigError(
+                "integration = command: needs a command; repair: "
+                "integration = command: <shell command>, or use merge / hold")
+        return "command", cmd
+    raise ConfigError(
+        f"integration must be merge, hold, or 'command: <cmd>'; got {value!r}")
 
 
 def _inbox_int(inbox, key):

@@ -150,7 +150,10 @@ parks. The manual wanted the *early* gate as the point of maximum leverage — t
 addresses that for gated pipelines; auto-merge is the remaining choice.
 *Options:* (a) accept full autonomy for trusted, well-scoped tasks; (b) cheapest partial gate —
 flip PRD open-question 3 to "leave the branch, don't auto-merge", making the human's
-branch-read a de facto exit gate; (c) add a post-pass hold before merge. Record the choice here.
+branch-read a de facto exit gate; (c) add a post-pass hold before merge.
+*Resolved:* made configurable rather than fixed — `[global] integration = merge | hold | command`
+(§7.3). `merge` keeps (a); `hold` is (b); `command: <cmd>` routes `done` to a hook (e.g. open a
+PR) for a review-before-land gate. Default stays `merge`.
 
 ---
 
