@@ -363,11 +363,13 @@ Where the protocol left a choice, the refusing option was taken.
     overwritten, having merged nothing. The two need different repairs, so
     `queue.merge` returns the reason and the loop parks `untracked-collision`
     rather than folding it into `merge-conflict`.
-47. **`.gitignore` is judged by what is committed.** The role worktrees check
-    out the committed file, so `conveyor start` reads `HEAD:.gitignore`, not the
-    integration tree's working copy — an entry `conveyor init` appended but nobody
-    committed does not protect anything. A tracked
-    `.cursor/rules/conveyor-role.mdc` is refused outright rather than warned about:
+47. **`.gitignore` is committed on start.** Role worktrees check out the committed
+    file, so an entry `conveyor init` appended but nobody committed does not protect
+    anything. `conveyor start` appends any missing ISO-5 entries and commits
+    `.gitignore` on the integration tree (and on an existing idle role branch that
+    still lacks them) before creating worktrees. A live loop is not moved: start
+    warns and asks for `conveyor stop` first. A tracked
+    `.cursor/rules/conveyor-role.mdc` is refused outright rather than patched:
     each role's copy differs, so merging a commit that carries one would run a role
     under another role's instructions.
 48. **The run log is stamped by a separate process.** `role-loop.sh --stamp`

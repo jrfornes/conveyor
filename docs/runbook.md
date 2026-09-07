@@ -30,10 +30,11 @@ cursor-agent --list-models
 3. Edit `conveyor.conf` and fill in the two model names.
 4. Make sure the project's test command passes on a clean checkout. On `ready` and `pass`, `handoff.sh` runs the required gates from the worktree's `project.md` (legacy `## Test command` fence or `## Gates` + `## Required on`). An empty fence or command is skipped. A nonzero exit is `E_GATE_FAILED`; `cat .conveyor/logs/gates/<role>-<task>-<commit>-<name>.txt` for the output. Run a gate manually with `conveyor gate run <name>` (add `--role <role>` to use that worktree and inbound commit).
 5. `conveyor start`. It will:
+   - install the byline `commit-msg` hook
+   - commit any missing `.gitignore` entries (`.worktrees/`, `.conveyor/`, `.cursor/rules/conveyor-role.mdc`, `tmp/`) so role worktrees ignore runtime files — `init` only appends to the working copy
    - create one `.worktrees/<role>` per configured role on branch `conveyor-<role>` (e.g. `.worktrees/coder`, `.worktrees/reviewer` for the default Review belt)
    - write `.cursor/rules/conveyor-role.mdc` into each (constitution + role, concatenated)
    - copy assigned skill trees from `roles/<role>.skills` into each worktree at the same relative path under `.agents/skills/<name>/` or `.cursor/skills/<name>/` (repo root; `.agents/skills` wins when both exist)
-   - install the byline `commit-msg` hook
    - create `.conveyor/` queue directories and `board.tsv`
    - run a smoke test (`cursor-agent -p "reply with the word ok"` in each worktree) and check the rules file loaded
    - launch one loop per role
