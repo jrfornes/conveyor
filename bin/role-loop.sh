@@ -108,8 +108,13 @@ class Loop:
             h = handoff.stamp(path, dequeued_at=util.now(), attempt=1)
         task = h["task"]
         park = lambda reason, detail: queue.park(self.paths, path, task, reason, detail)  # noqa: E731
-        if not queue.merge(h["commit"], self.wt, self.role):
-            return park("merge-conflict", f"merging {h['commit']} into conveyor-{self.role} conflicted")
+        fail = queue.merge(h["commit"], self.wt, self.role)
+        if fail:
+            reason, detail = fail
+            repair = "" if reason == "merge-conflict" else (
+                f"; delete them from .worktrees/{self.role} or untrack them in the commit "
+                f"(git rm --cached), then run: conveyor resume {task}")
+            return park(reason, f"merging {h['commit']} into conveyor-{self.role} {detail}{repair}")
         util.crash_point("after-merge")
         intake = self.role == config.INTAKE_ROLE
         row = None if intake else board.get(self.paths, task)

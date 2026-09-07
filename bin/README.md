@@ -358,6 +358,19 @@ Where the protocol left a choice, the refusing option was taken.
     as leftover from an interrupted attempt; anything else still refuses with
     `already exists`, because approve must never overwrite an operator's file.
 
+46. **A refused merge is not always a conflict.** §7.2 says only "conflict",
+    but `git merge` also refuses when an untracked file in the worktree would be
+    overwritten, having merged nothing. The two need different repairs, so
+    `queue.merge` returns the reason and the loop parks `untracked-collision`
+    rather than folding it into `merge-conflict`.
+47. **`.gitignore` is judged by what is committed.** The role worktrees check
+    out the committed file, so `conveyor start` reads `HEAD:.gitignore`, not the
+    integration tree's working copy — an entry `conveyor init` appended but nobody
+    committed does not protect anything. A tracked
+    `.cursor/rules/conveyor-role.mdc` is refused outright rather than warned about:
+    each role's copy differs, so merging a commit that carries one would run a role
+    under another role's instructions.
+
 ## Not built (PRD Appendix B)
 
 Nothing from Appendix B is implemented except the partial B.3/B.5 pieces

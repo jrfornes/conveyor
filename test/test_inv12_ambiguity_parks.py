@@ -2,7 +2,7 @@
 import os
 import unittest
 
-from harness import CODER_OK, REVIEWER_PASS, ConveyorTest, layout
+from harness import CODER_OK, REVIEWER_PASS, ConveyorTest, layout, read
 
 
 class AmbiguityParks(ConveyorTest):
@@ -63,6 +63,25 @@ class AmbiguityParks(ConveyorTest):
         fx.loop("coder")  # demo: fine
         fx.loop("coder")  # later: operator commit conflicts with the coder branch
         self.assertEqual(fx.parked_reason("later")[0], "merge-conflict")
+
+    def test_untracked_file_in_the_way_parks_apart_from_a_conflict(self):
+        """git refusing to clobber an untracked file is not a conflict: nothing merged,
+        and the repair is to remove the file, not to reconcile two edits."""
+        fx = self.start_task(coder='write note.txt "from coder"\ncommit "Implement $TASK"\n'
+                                   'draft reviewer $TASK ready\nhandoff\nhandoff\n')
+        fx.loop("coder")
+        stray = os.path.join(fx.paths.worktree("reviewer"), "note.txt")
+        with open(stray, "w") as f:
+            f.write("left lying around")
+        fx.loop("reviewer")
+        reason = fx.parked_reason("demo")
+        self.assertEqual(reason[0], "untracked-collision")
+        self.assertIn("would overwrite untracked note.txt", reason[1])
+        self.assertIn("conveyor resume demo", reason[1])
+        self.assertEqual(read(stray), "left lying around")  # nothing was merged over it
+        self.assertEqual(fx.board()["demo"]["lane"], "needs-human")
+        self.assertEqual(layout.handoffs(fx.paths.role("reviewer").outbox), [])
+
 
 
 if __name__ == "__main__":
