@@ -56,6 +56,9 @@ class IntakeModule(ConveyorTest):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         text = read(self._mdc("ticket-reviewer"))
         self.assertNotIn("# Grading rubric", text)
+        self.assertIn("## Grades", text)
+        self.assertIn("Grade: Ready", text)
+        self.assertIn("Ready / Gaps / Unusable", text)
         self.assertIn("# Role: ticket-reviewer", text)
         self.assertEqual(inbox.item(fx.paths, "no-rubric")["status"], "graded")
 

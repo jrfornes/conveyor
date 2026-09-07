@@ -85,6 +85,9 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
         </mat-tab>
         <mat-tab label="Grading rubric">
           <div class="pane">
+            @if (gradeContract) {
+              <p class="explainer">{{ contractSummary }}</p>
+            }
             <mat-form-field appearance="outline" class="md-field">
               <textarea matInput rows="14" [(ngModel)]="rubric" (ngModelChange)="rubricDirty = true" spellcheck="false"></textarea>
             </mat-form-field>
@@ -92,7 +95,7 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
               <button mat-flat-button [disabled]="!rubricDirty || rubricBusy" (click)="saveRubric()">
                 Save rubric
               </button>
-              <span class="hint">Freeform. Injected above the prompt on the next Import.</span>
+              <span class="hint">Applies to the next Grade / Improve / Import. No restart.</span>
             </div>
             @if (rubricError) {
               <p class="err" role="alert">{{ rubricError }}</p>
@@ -172,6 +175,15 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
     }
     .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .hint { font-size: 12px; color: rgba(0,0,0,0.6); margin: 0; }
+    .explainer {
+      font-size: 12px;
+      color: rgba(0,0,0,0.75);
+      margin: 0;
+      padding: 8px 10px;
+      background: #eceff1;
+      border-radius: 6px;
+      line-height: 1.45;
+    }
     .err { font-size: 12px; color: #b71c1c; margin: 0; }
     .test { font-size: 12px; color: #1b5e20; margin: 0; }
     .test.fail { color: #b71c1c; }
@@ -191,6 +203,8 @@ export class IntakeSettingsRailComponent implements OnInit {
   attempts = 2;
   prompt = '';
   rubric = '';
+  gradeContract = '';
+  contractSummary = '';
   jiraSite = '';
   jiraEmail = '';
   jiraToken = '';
@@ -240,6 +254,8 @@ export class IntakeSettingsRailComponent implements OnInit {
     this.attempts = s.config.max_attempts;
     this.prompt = s.prompt;
     this.rubric = s.rubric;
+    this.gradeContract = s.grade_contract ?? '';
+    this.contractSummary = this.summarizeContract(this.gradeContract);
     this.jiraSite = s.jira.site;
     this.jiraEmail = s.jira.email;
     this.jiraTokenSet = s.jira.token_set;
@@ -249,6 +265,19 @@ export class IntakeSettingsRailComponent implements OnInit {
 
   private saved(path: string): void {
     this.snack.open(`${path} saved — applies to the next Import`, undefined, { duration: 3000 });
+  }
+
+  private summarizeContract(contract: string): string {
+    if (!contract.trim()) {
+      return 'These checklist items define Ready. Ready / Gaps / Unusable and the Grade: line are fixed by Conveyor.';
+    }
+    const grades = contract.split('\n').find((l) => l.startsWith('- **Ready**'));
+    const gradeLine = contract.split('\n').find((l) => l.includes('Grade: Ready'));
+    const parts = ['These checklist items define Ready.'];
+    if (grades) parts.push(grades.replace(/^- /, ''));
+    if (gradeLine) parts.push(`Fixed: ${gradeLine.trim()}`);
+    else parts.push('Ready / Gaps / Unusable and the Grade: line are fixed by Conveyor.');
+    return parts.join(' ');
   }
 
   saveConfig(): void {

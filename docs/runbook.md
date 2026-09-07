@@ -134,6 +134,11 @@ diff -u intake/ticket-reviewer.md <conveyor>/intake/ticket-reviewer.md
 diff -u intake/rubric.md          <conveyor>/intake/rubric.md
 ```
 
+Shipped templates are **items-only**: `intake/rubric.md` is the operator checklist for Ready.
+The three grades (`Ready` / `Gaps` / `Unusable`) and the `Grade:` first-line rule live in Conveyor
+code and are injected into the ticket-reviewer worktree on every `conveyor start` — deleting or
+trimming the rubric file cannot remove them.
+
 The only substantive addition is that `grade.md`'s first line must be `Grade: Ready`, `Grade: Gaps`,
 or `Grade: Unusable`. Without it a grade is recorded as `unparsed` and `conveyor inbox approve`
 refuses it — which is the intended behavior, not a regression.

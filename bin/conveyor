@@ -125,6 +125,7 @@ def ensure_worktree(root, paths, role_name):
         rubric = intakelib.read_rubric(root)
         if rubric.strip():
             rules += f"# Grading rubric ({intakelib.RUBRIC_REL})\n\n" + rubric.rstrip("\n") + "\n\n"
+        rules += intakelib.GRADE_CONTRACT.rstrip("\n") + "\n\n"
         rules += (
             "Attachments for this ticket, if the operator selected any, are files under "
             "`tmp/attachments/`. Look at them when grading or improving. Video and audio "

@@ -12,6 +12,20 @@ DIR = "intake"
 PROMPT_REL = "intake/ticket-reviewer.md"
 RUBRIC_REL = "intake/rubric.md"
 
+# Injected into ticket-reviewer's .mdc on every start; not operator-editable via rubric.md.
+GRADE_CONTRACT = """## Grades
+
+- **Ready** — every item is present and testable. No gaps to list.
+- **Gaps** — the problem is clear enough to rewrite; list every missing item, numbered, specific enough to fix in the ticket text.
+- **Unusable** — the problem itself is missing. Cannot be rewritten without inventing the work.
+
+Ready / Gaps / Unusable are the only legal grades. A / B / C are not used.
+
+State the verdict on the first line of `grade.md` as `Grade: Ready`, `Grade: Gaps`, or
+`Grade: Unusable`. That line is the whole signal; a grade file without it is recorded as
+`unparsed` and cannot be approved.
+"""
+
 
 class IntakeError(Exception):
     pass

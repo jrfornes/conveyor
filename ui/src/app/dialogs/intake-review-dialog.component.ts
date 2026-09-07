@@ -4,13 +4,20 @@ import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/materia
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { InboxDetail } from '../models';
+import { displayGradeMd, gradeDisplay } from '../grade';
 
 export interface IntakeReviewResult {
   action: 'approve' | 'edit-approve' | 'reject' | 'skip';
   name?: string;
   text?: string;
   comments?: string;
+}
+
+export interface IntakeReviewData extends InboxDetail {
+  rubric: string;
+  grade_contract: string;
 }
 
 @Component({
@@ -22,6 +29,7 @@ export interface IntakeReviewResult {
     MatFormFieldModule,
     MatInputModule,
     MatButtonModule,
+    MatTooltipModule,
   ],
   template: `
     <h2 mat-dialog-title>Review {{ data.title }}</h2>
@@ -43,8 +51,19 @@ export interface IntakeReviewResult {
             </mat-form-field>
           </div>
         </div>
-        <h3>Gaps</h3>
-        <pre class="mono">{{ data.grade_md || '(no grade yet)' }}</pre>
+        <div class="grade-head">
+          <h3>Grade</h3>
+          @let g = gradeInfo(data.grade);
+          <span class="grade-chip" [class]="g.cssClass" [matTooltip]="g.tooltip">{{ g.label }}</span>
+        </div>
+        @if (gradeBody) {
+          <pre class="mono">{{ gradeBody }}</pre>
+        } @else if (!data.grade_md) {
+          <p class="muted">(no grade yet)</p>
+        }
+        <h3>Ready requires</h3>
+        <pre class="mono rubric">{{ data.rubric || '(no rubric file)' }}</pre>
+        <p class="contract-hint">{{ contractSummary }}</p>
         <mat-form-field appearance="outline" class="full">
           <mat-label>Reject comments (Improve retry)</mat-label>
           <textarea matInput formControlName="comments" rows="3"></textarea>
@@ -69,6 +88,27 @@ export interface IntakeReviewResult {
       overflow: hidden;
     }
     h3 { margin: 8px 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .grade-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .grade-head h3 { margin: 0; }
+    .grade-chip {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+    }
+    .grade-ready { background: #e8f5e9; color: #1b5e20; border-color: #a5d6a7; }
+    .grade-gaps { background: #fff8e1; color: #8a6100; border-color: #ffe0a3; }
+    .grade-unusable { background: #fbe9e7; color: #bf360c; border-color: #ffab91; }
+    .grade-unparsed { background: #eceff1; color: #455a64; border-color: #b0bec5; }
+    .grade-none { background: rgba(0, 0, 0, 0.04); color: rgba(0, 0, 0, 0.45); }
+    .grade-unknown { background: rgba(0, 0, 0, 0.06); color: rgba(0, 0, 0, 0.7); }
     .mono {
       font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap;
       max-height: 240px; overflow: auto; background: #f5f5f5; padding: 8px;
@@ -76,6 +116,12 @@ export interface IntakeReviewResult {
       overflow-wrap: anywhere;
       word-break: break-word;
       box-sizing: border-box;
+    }
+    .rubric { max-height: 180px; }
+    .muted, .contract-hint {
+      font-size: 12px;
+      color: rgba(0, 0, 0, 0.6);
+      margin: 4px 0 0;
     }
     mat-dialog-content {
       min-width: 0;
@@ -94,12 +140,27 @@ export class IntakeReviewDialogComponent {
     text: [''],
     comments: [''],
   });
+  gradeBody = '';
+  contractSummary = '';
 
-  constructor(@Inject(MAT_DIALOG_DATA) public data: InboxDetail) {
+  constructor(@Inject(MAT_DIALOG_DATA) public data: IntakeReviewData) {
     this.form.patchValue({
       name: data.task_name && data.task_name !== '-' ? data.task_name : data.id,
       text: data.proposed_md || data.source_md,
     });
+    this.gradeBody = displayGradeMd(data.grade, data.grade_md);
+    this.contractSummary = this.summarizeContract(data.grade_contract);
+  }
+
+  gradeInfo(grade: string) {
+    return gradeDisplay(grade);
+  }
+
+  private summarizeContract(contract: string): string {
+    const line = contract.split('\n').find((l) => l.includes('Grade: Ready'));
+    return line
+      ? `Fixed by Conveyor: ${line.trim()}`
+      : 'Ready / Gaps / Unusable and the Grade: line are fixed by Conveyor; edit the checklist above.';
   }
 
   close(action: IntakeReviewResult['action']): void {

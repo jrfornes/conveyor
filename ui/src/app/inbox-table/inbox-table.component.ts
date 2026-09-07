@@ -3,6 +3,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatTableModule } from '@angular/material/table';
 import { InboxItem } from '../models';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { gradeDisplay } from '../grade';
 
 @Component({
   selector: 'app-inbox-table',
@@ -49,7 +50,10 @@ import { MatTooltipModule } from '@angular/material/tooltip';
         </ng-container>
         <ng-container matColumnDef="grade">
           <th mat-header-cell *matHeaderCellDef>Grade</th>
-          <td mat-cell *matCellDef="let row">{{ row.grade }}</td>
+          <td mat-cell *matCellDef="let row">
+            @let g = gradeInfo(row.grade);
+            <span class="grade-chip" [class]="g.cssClass" [matTooltip]="g.tooltip">{{ g.label }}</span>
+          </td>
         </ng-container>
         <ng-container matColumnDef="status">
           <th mat-header-cell *matHeaderCellDef>Status</th>
@@ -118,6 +122,21 @@ import { MatTooltipModule } from '@angular/material/tooltip';
       font-family: "Roboto Mono", ui-monospace, monospace;
       font-size: 12px;
     }
+    .grade-chip {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .grade-ready { background: #e8f5e9; color: #1b5e20; border-color: #a5d6a7; }
+    .grade-gaps { background: #fff8e1; color: #8a6100; border-color: #ffe0a3; }
+    .grade-unusable { background: #fbe9e7; color: #bf360c; border-color: #ffab91; }
+    .grade-unparsed { background: #eceff1; color: #455a64; border-color: #b0bec5; }
+    .grade-none { background: rgba(0, 0, 0, 0.04); color: rgba(0, 0, 0, 0.45); }
+    .grade-unknown { background: rgba(0, 0, 0, 0.06); color: rgba(0, 0, 0, 0.7); }
   `,
 })
 export class InboxTableComponent {
@@ -136,6 +155,10 @@ export class InboxTableComponent {
   @Output() start = new EventEmitter<InboxItem>();
   @Output() skip = new EventEmitter<string>();
   cols = ['id', 'title', 'source', 'grade', 'status', 'actions'];
+
+  gradeInfo(grade: string) {
+    return gradeDisplay(grade);
+  }
 
   displayId(row: InboxItem): string {
     const ext = row.external_id?.trim();

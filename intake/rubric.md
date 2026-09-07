@@ -1,6 +1,6 @@
 # Grading rubric
 
-What earns Ready / Gaps / Unusable. The ticket-reviewer grades against these items; it does not invent a different scale.
+Checklist for Ready. Edit these items; the three grades and the `Grade:` line are fixed by Conveyor.
 
 ## Items (every one is required for Ready)
 
@@ -9,15 +9,3 @@ What earns Ready / Gaps / Unusable. The ticket-reviewer grades against these ite
 - **Numbered testable acceptance:** what must be true when done.
 - **Scope:** in and out; no open-ended "etc."
 - **Environment:** where it runs, versions, data that matter.
-
-## Grades
-
-- **Ready** — every item is present and testable. No gaps to list.
-- **Gaps** — the problem is clear enough to rewrite; list every missing item, numbered, specific enough to fix in the ticket text.
-- **Unusable** — the problem itself is missing. Cannot be rewritten without inventing the work.
-
-Ready / Gaps / Unusable are the only legal grades. A / B / C are not used.
-
-State the verdict on the first line of `grade.md` as `Grade: Ready`, `Grade: Gaps`, or
-`Grade: Unusable`. That line is the whole signal; a grade file without it is recorded as
-`unparsed` and cannot be approved.

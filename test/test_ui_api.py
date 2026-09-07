@@ -473,6 +473,7 @@ class UiApiTest(unittest.TestCase):
         got = get(f"{self.base}/api/intake")
         self.assertIn("## Owns", got["prompt"])
         self.assertIn("Ready", got["rubric"])
+        self.assertIn("Grade: Ready", got["grade_contract"])
         self.assertEqual(got["avatar"]["icon"], "inbox")
         code, body = post(f"{self.base}/api/intake/rubric", {"text": "Ready means done.\n"})
         self.assertEqual(code, 200, body)

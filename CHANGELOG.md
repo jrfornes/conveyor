@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**Intake: rubric UX**
+
+- Split the operator checklist (`intake/rubric.md`, items only) from Conveyor's fixed grade
+  contract (`Ready` / `Gaps` / `Unusable` and the `Grade:` first-line rule). The contract is
+  injected into the ticket-reviewer worktree on every `conveyor start`, even when the rubric file
+  is missing.
+- Cockpit: grade chips with tooltips in the inbox table; review dialog shows verdict + checklist
+  side by side (not a "Gaps" heading on Ready tickets); settings rail explains what is editable vs
+  fixed.
+
 **Intake: grade integrity**
 
 - **Fixed: a ticket could be graded `Ready` by prose.** `inbox.parse_grade` searched the first 30

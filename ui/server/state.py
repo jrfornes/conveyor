@@ -429,6 +429,7 @@ def build_intake(root):
     return {
         "prompt": _read_optional(intakelib.prompt_path(root)),
         "rubric": intakelib.read_rubric(root),
+        "grade_contract": intakelib.GRADE_CONTRACT,
         "avatar": workflows.avatar(config.INTAKE_ROLE),
         "path": intakelib.DIR + "/",
         "config": {

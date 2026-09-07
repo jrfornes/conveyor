@@ -2,6 +2,7 @@ import { Component } from '@angular/core';
 import { Router, RouterModule } from '@angular/router';
 import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { forkJoin } from 'rxjs';
 import { ConveyorApiService } from '../services/conveyor-api.service';
 import { UiStateService } from '../services/ui-state.service';
 import { InboxItem } from '../models';
@@ -273,13 +274,20 @@ export class CockpitComponent {
   }
 
   openIntakeReview(id: string): void {
-    this.api.inboxItem(id).subscribe({
-      next: (item) => {
+    forkJoin({
+      item: this.api.inboxItem(id),
+      settings: this.api.intakeSettings(),
+    }).subscribe({
+      next: ({ item, settings }) => {
         const ref = this.dialog.open(IntakeReviewDialogComponent, {
           width: '900px',
           maxWidth: '95vw',
           panelClass: 'intake-review-dialog',
-          data: item,
+          data: {
+            ...item,
+            rubric: settings.rubric,
+            grade_contract: settings.grade_contract,
+          },
         });
         ref.afterClosed().subscribe((v) => {
           if (!v) return;

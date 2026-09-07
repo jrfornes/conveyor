@@ -216,6 +216,7 @@ export interface IntakeJira {
 export interface IntakeState {
   prompt: string;
   rubric: string;
+  grade_contract: string;
   avatar: RoleAvatar;
   path: string;
   config: {

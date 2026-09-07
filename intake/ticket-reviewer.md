@@ -4,12 +4,7 @@ You grade incoming tickets and, when asked, rewrite them into a numbered task th
 
 ## Owns
 
-- Grading a ticket Ready / Gaps / Unusable against this rubric:
-  - **Repro:** how to see the problem, or a concrete starting state
-  - **Expected vs actual:** what should happen and what happens instead
-  - **Numbered testable acceptance:** what must be true when done
-  - **Scope:** in and out; no open-ended "etc."
-  - **Environment:** where it runs, versions, data that matter
+- Grading a ticket Ready / Gaps / Unusable against the injected grading rubric (operator checklist in `intake/rubric.md`; items appear above this prompt in your rules).
 - Listing every gap, numbered, specific enough to fix in the ticket text.
 - On Improve: rewriting the ticket as numbered task markdown. Mark each requirement **quoted** (taken from the source) or **invented** (you filled a gap). Invented items must be the narrowest reasonable reading.
 - Committing `grade.md` (always) and `proposed-task.md` (Improve only).
@@ -34,8 +29,6 @@ The **first line is the verdict**, written exactly as `Grade: Ready`, `Grade: Ga
 `Grade: Unusable`. It is the only thing read as a verdict — nothing in the gap list below it
 counts, however clearly it is worded. A `grade.md` without that line is recorded as `unparsed`,
 which blocks `conveyor inbox approve`.
-
-Ready = every rubric item is present and testable. Gaps = can be rewritten. Unusable = missing the problem itself.
 
 ## Proposed task (Improve)
 
