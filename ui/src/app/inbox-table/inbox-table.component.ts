@@ -1,14 +1,22 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTableModule } from '@angular/material/table';
-import { InboxItem } from '../models';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { gradeDisplay } from '../grade';
+import { InboxItem } from '../models';
+import {
+  attachmentBadge,
+  attachmentBadgeTitle,
+  canGradeInbox,
+  canStartInbox,
+  displayInboxId,
+} from '../inbox/inbox-actions';
 
 @Component({
   selector: 'app-inbox-table',
   standalone: true,
-  imports: [MatTableModule, MatButtonModule, MatTooltipModule],
+  imports: [MatTableModule, MatButtonModule, MatTooltipModule, RouterLink],
   template: `
     <div class="bar">
       <h2>Inbox</h2>
@@ -33,12 +41,16 @@ import { gradeDisplay } from '../grade';
       <table mat-table [dataSource]="items" class="inbox">
         <ng-container matColumnDef="id">
           <th mat-header-cell *matHeaderCellDef>ID</th>
-          <td mat-cell *matCellDef="let row" class="mono" [title]="row.id">{{ displayId(row) }}</td>
+          <td mat-cell *matCellDef="let row" class="mono">
+            <a class="itemlink" [routerLink]="['/inbox', row.id]" [title]="row.id">
+              {{ displayId(row) }}
+            </a>
+          </td>
         </ng-container>
         <ng-container matColumnDef="title">
           <th mat-header-cell *matHeaderCellDef>Title</th>
           <td mat-cell *matCellDef="let row">
-            {{ row.title }}
+            <a class="itemlink" [routerLink]="['/inbox', row.id]">{{ row.title }}</a>
             @if (row.attachment_count) {
               <span class="badge" [title]="badgeTitle(row)">{{ badge(row) }}</span>
             }
@@ -62,31 +74,16 @@ import { gradeDisplay } from '../grade';
         <ng-container matColumnDef="actions">
           <th mat-header-cell *matHeaderCellDef>Actions</th>
           <td mat-cell *matCellDef="let row">
-            @if (canRefresh(row)) {
-              <button mat-button (click)="refresh.emit(row.id)">Fetch again</button>
-            }
-            @if (canEditSource(row)) {
-              <button mat-button (click)="editSource.emit(row.id)">Edit source</button>
-            }
-            @if (canAttachments(row)) {
-              <button mat-button (click)="attachments.emit(row.id)">Attachments</button>
-            }
             @if (canGrade(row)) {
               <button mat-button [disabled]="intakeBusy"
                       [matTooltip]="intakeBusy ? 'Ticket-reviewer is busy; wait for it to finish' : ''"
                       (click)="grade.emit(row.id)">Grade</button>
-              <button mat-button [disabled]="intakeBusy"
-                      [matTooltip]="intakeBusy ? 'Ticket-reviewer is busy; wait for it to finish' : ''"
-                      (click)="improve.emit(row.id)">Improve</button>
             }
-            @if (canApprove(row)) {
-              <button mat-button (click)="approve.emit(row.id)">Approve</button>
+            @if (row.status === 'graded' || row.status === 'awaiting-approval') {
+              <a mat-flat-button [routerLink]="['/inbox', row.id]">Review</a>
             }
-            @if (row.status === 'ready') {
+            @if (canStart(row)) {
               <button mat-flat-button (click)="start.emit(row)">Start</button>
-            }
-            @if (row.status !== 'started' && row.status !== 'skipped') {
-              <button mat-button color="warn" (click)="skip.emit(row.id)">Skip</button>
             }
           </td>
         </ng-container>
@@ -137,6 +134,12 @@ import { gradeDisplay } from '../grade';
     .grade-unparsed { background: #eceff1; color: #455a64; border-color: #b0bec5; }
     .grade-none { background: rgba(0, 0, 0, 0.04); color: rgba(0, 0, 0, 0.45); }
     .grade-unknown { background: rgba(0, 0, 0, 0.06); color: rgba(0, 0, 0, 0.7); }
+    .itemlink {
+      color: #1565c0;
+      font-weight: 500;
+      text-decoration: none;
+    }
+    .itemlink:hover { text-decoration: underline; }
   `,
 })
 export class InboxTableComponent {
@@ -146,56 +149,17 @@ export class InboxTableComponent {
   @Input() intakeBusyTask: string | null = null;
   @Output() importTickets = new EventEmitter<void>();
   @Output() toggleIntake = new EventEmitter<void>();
-  @Output() refresh = new EventEmitter<string>();
-  @Output() editSource = new EventEmitter<string>();
-  @Output() attachments = new EventEmitter<string>();
   @Output() grade = new EventEmitter<string>();
-  @Output() improve = new EventEmitter<string>();
-  @Output() approve = new EventEmitter<string>();
   @Output() start = new EventEmitter<InboxItem>();
-  @Output() skip = new EventEmitter<string>();
   cols = ['id', 'title', 'source', 'grade', 'status', 'actions'];
 
   gradeInfo(grade: string) {
     return gradeDisplay(grade);
   }
 
-  displayId(row: InboxItem): string {
-    const ext = row.external_id?.trim();
-    return ext && ext !== '-' ? ext : row.id;
-  }
-
-  canRefresh(row: InboxItem): boolean {
-    return row.source === 'jira' && row.status === 'imported';
-  }
-
-  canEditSource(row: InboxItem): boolean {
-    return row.status === 'imported';
-  }
-
-  canAttachments(row: InboxItem): boolean {
-    return row.status === 'imported' && (row.attachment_count || 0) > 0;
-  }
-
-  badge(row: InboxItem): string {
-    const n = row.attachment_count || 0;
-    const sel = row.selected_count || 0;
-    const vid = row.video_count || 0;
-    let s = `${sel}/${n}`;
-    if (vid) s += ` · ${vid} video`;
-    return s;
-  }
-
-  badgeTitle(row: InboxItem): string {
-    return `${row.selected_count || 0} selected of ${row.attachment_count || 0}` +
-      (row.video_count ? `; ${row.video_count} video not downloaded` : '');
-  }
-
-  canGrade(row: InboxItem): boolean {
-    return ['imported', 'graded', 'awaiting-approval'].includes(row.status);
-  }
-
-  canApprove(row: InboxItem): boolean {
-    return ['graded', 'awaiting-approval'].includes(row.status);
-  }
+  displayId = displayInboxId;
+  canGrade = canGradeInbox;
+  canStart = canStartInbox;
+  badge = attachmentBadge;
+  badgeTitle = attachmentBadgeTitle;
 }

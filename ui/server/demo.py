@@ -63,7 +63,7 @@ def _park_task(root, name):
 
 
 def make_demo():
-    """Initialized git checkout with a queued task, a parked task, and an inbox item."""
+    """Initialized git checkout with queued/parked tasks and inbox items."""
     tmp = tempfile.mkdtemp(prefix="conveyor-ui-demo-")
     root = os.path.join(tmp, "repo")
     os.makedirs(root)
@@ -96,6 +96,19 @@ def make_demo():
              "content_url": "https://example.atlassian.net/rest/api/3/attachment/content/10002"},
         ], "# PROJ-9\n\n1. Fetched from Jira in the demo fixture.\n",
            "https://example.atlassian.net/browse/PROJ-9")
+        iid = inbox.create(paths, {
+            "id": "cave-lights",
+            "source": "manual",
+            "title": "Cave lighting",
+            "status": "awaiting-approval",
+            "grade": "Ready",
+        }, "# Cave lighting\n\n1. Add a lantern in the cave.\n")
+        inbox.write_file(paths, iid, "grade.md",
+                         "Grade: Ready\n\nAcceptance criteria are present.\n")
+        inbox.write_file(paths, iid, "proposed-task.md",
+                         "# Cave lighting\n\n1. Add a lantern in the cave.\n")
+        inbox.write_file(paths, iid, "comments-applied.txt",
+                         "Please include a definition of done.\n")
         _park_task(root, "stuck")
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)

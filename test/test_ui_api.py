@@ -137,6 +137,7 @@ class UiApiTest(unittest.TestCase):
         self.assertTrue(any(i["id"] == "api-ticket" for i in state["inbox"]))
         item = get(f"{self.base}/api/inbox/api-ticket")
         self.assertIn("Imported from the UI API", item["source_md"])
+        self.assertEqual(item["comments_applied"], "")
         # An ungraded item is refused here exactly as it is on the CLI; the
         # cockpit only enables Approve for graded / awaiting-approval rows.
         def approve(**extra):

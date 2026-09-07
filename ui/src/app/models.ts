@@ -62,6 +62,7 @@ export interface InboxDetail extends InboxItem {
   grade_md: string;
   proposed_md: string;
   comments: string;
+  comments_applied: string;
   attachments: InboxAttachment[];
 }
 

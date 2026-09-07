@@ -1,4 +1,5 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { ApprovalItem, InboxItem, NeedsHumanEntry } from '../models';
@@ -6,7 +7,7 @@ import { ApprovalItem, InboxItem, NeedsHumanEntry } from '../models';
 @Component({
   selector: 'app-attention-strip',
   standalone: true,
-  imports: [MatChipsModule, MatButtonModule],
+  imports: [MatChipsModule, MatButtonModule, RouterLink],
   template: `
     @if (items.length || awaiting.length || approvals.length) {
       <div class="strip" role="alert">
@@ -31,7 +32,7 @@ import { ApprovalItem, InboxItem, NeedsHumanEntry } from '../models';
               <mat-chip-set>
                 <mat-chip>{{ item.title }}</mat-chip>
               </mat-chip-set>
-              <button mat-stroked-button (click)="intakeApprove.emit(item.id)">Review</button>
+              <a mat-stroked-button [routerLink]="['/inbox', item.id]">Review</a>
             </span>
           }
         }
@@ -71,6 +72,5 @@ export class AttentionStripComponent {
   @Input() approvals: ApprovalItem[] = [];
   @Output() resume = new EventEmitter<string>();
   @Output() deleteTask = new EventEmitter<string>();
-  @Output() intakeApprove = new EventEmitter<string>();
   @Output() specApprove = new EventEmitter<string>();
 }

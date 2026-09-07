@@ -69,8 +69,12 @@
 
 **Features**
 
+- Cockpit inbox rows link to `/inbox/<id>`. The item page shows status, grade, source, proposed
+  task, comments, attachments, and the next operator step, with the Grade / Improve / Approve /
+  Start / Skip actions as full buttons. The inbox table keeps Grade, Review, and Start.
+
 - Jira import writes metadata, comments, and allowlisted custom fields into `source.md`; ADF lists/links/mentions survive flattening. Empty body still means no spec text (not “no summary”).
-- `conveyor import --refresh <id>` re-fetches a Jira ticket in place; `--replace <id>` overwrites `source.md`. Only `imported` items; re-importing the same key still creates `proj-9-2` and points at `--refresh`. Cockpit: **Fetch again** / **Edit source**.
+- `conveyor import --refresh <id>` re-fetches a Jira ticket in place; `--replace <id>` overwrites `source.md`. Only `imported` items; re-importing the same key still creates `proj-9-2` and points at `--refresh`. Cockpit item page: **Fetch again** / **Edit source**.
 - Jira inbox attachments: import records a manifest (no blobs). Default-select small images; video/audio/archives are listed and never downloaded. `conveyor inbox attachments <id> [--select …]` chooses what ticket-reviewer may scan; Grade/Improve fetches those files into `tmp/attachments/`.
 
 - Intake → Jira **Test connection** saves the form to `jira.json` then checks credentials (same as `conveyor intake jira --test`).
