@@ -2,9 +2,7 @@ import {
   AfterViewChecked,
   Component,
   ElementRef,
-  EventEmitter,
   Input,
-  Output,
   OnChanges,
   SimpleChanges,
   ViewChild,
@@ -77,7 +75,7 @@ function renderTask(text: string): MdBlock[] {
               }
             </div>
           } @else {
-            <p class="muted">Select a task card to view <code>tasks/&lt;name&gt;.md</code></p>
+            <p class="muted">No task content</p>
           }
         </mat-tab>
         <mat-tab label="Log">
@@ -117,9 +115,9 @@ function renderTask(text: string): MdBlock[] {
     </div>
   `,
   styles: `
-    .rail { display: flex; flex-direction: column; height: 100%; padding: 8px; gap: 8px; min-width: 0; }
-    .mono { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; overflow: auto; max-height: 280px; margin: 8px 0; }
-    .log { max-height: 360px; }
+    .rail { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0; gap: 8px; min-width: 0; }
+    .mono { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; overflow: auto; max-height: 40vh; margin: 8px 0; }
+    .log { max-height: 40vh; }
     .log-meta { font-size: 12px; opacity: 0.7; }
     .peek { font-family: ui-monospace, monospace; }
     .meta {
@@ -128,7 +126,7 @@ function renderTask(text: string): MdBlock[] {
       border-bottom: 1px solid rgba(0,0,0,0.08);
     }
     .meta code { font-family: ui-monospace, monospace; }
-    .md { padding: 4px 0 12px; overflow: auto; max-height: 280px; }
+    .md { padding: 4px 0 12px; overflow: auto; max-height: 32vh; }
     .md-h { margin: 10px 0 4px; font-size: 13px; text-transform: none; letter-spacing: 0; }
     .md-p { margin: 4px 0; font-size: 13px; }
     .md-li { display: flex; gap: 6px; font-size: 13px; margin: 3px 0; }
@@ -144,7 +142,6 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked {
   @Input() selectedTask: string | null = null;
   /** Board row for selectedTask, for the meta line. */
   @Input() task: ConveyorTask | null = null;
-  @Output() selectRole = new EventEmitter<string>();
   @ViewChild('logPre') logPre?: ElementRef<HTMLElement>;
 
   tabIndex = 0;
@@ -169,7 +166,6 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked {
 
   onSelectRole(role: string): void {
     this.logRole = role;
-    this.selectRole.emit(role);
     this.tabIndex = 1;
     this.loadLog(role, this.selectedTask ?? undefined);
     this.loadQueues(role);

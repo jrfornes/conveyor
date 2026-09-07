@@ -1,15 +1,15 @@
 import { Component } from '@angular/core';
 import { Router, RouterModule } from '@angular/router';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ConveyorApiService } from '../services/conveyor-api.service';
 import { UiStateService } from '../services/ui-state.service';
-import { ConveyorTask, InboxItem } from '../models';
+import { InboxItem } from '../models';
 import { AttentionStripComponent } from '../attention-strip/attention-strip.component';
 import { KanbanBoardComponent } from '../kanban-board/kanban-board.component';
-import { DetailRailComponent } from '../detail-rail/detail-rail.component';
 import { InboxTableComponent } from '../inbox-table/inbox-table.component';
 import { IntakeSettingsRailComponent } from '../intake/intake-settings-rail.component';
+import { TaskDetailDialogComponent } from '../dialogs/task-detail-dialog.component';
 import { IntakeReviewDialogComponent } from '../dialogs/intake-review-dialog.component';
 import { SpecApproveDialogComponent } from '../dialogs/spec-approve-dialog.component';
 import { ImportDialogComponent } from '../dialogs/import-dialog.component';
@@ -27,7 +27,6 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
     MatSnackBarModule,
     AttentionStripComponent,
     KanbanBoardComponent,
-    DetailRailComponent,
     InboxTableComponent,
     IntakeSettingsRailComponent,
   ],
@@ -72,25 +71,17 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
         <p>Run <code>conveyor start</code> or click <strong>Start</strong> in the header.</p>
       </div>
     } @else {
-      <div class="cockpit">
+      <div class="board-layout">
         <div class="board-pane" [class.stale]="ui.stale()">
           <app-kanban-board
             [lanes]="ui.state()?.lanes ?? []"
             [avatars]="ui.state()?.avatars ?? {}"
             [tasks]="ui.state()?.tasks ?? []"
             [selectedTask]="selectedTask"
-            (selectTask)="selectedTask = $event"
+            (selectTask)="openTaskDetail($event)"
             (resumeTask)="resume($event)"
             (deleteTask)="deleteTask($event)"
           ></app-kanban-board>
-        </div>
-        <div class="splitter" aria-hidden="true"></div>
-        <div class="rail-pane">
-          <app-detail-rail
-            [work]="ui.state()?.work ?? []"
-            [selectedTask]="selectedTask"
-            [task]="selectedRow"
-          ></app-detail-rail>
         </div>
       </div>
     }
@@ -123,21 +114,20 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
       .inbox-layout.with-rail { grid-template-columns: 1fr; }
     }
     .inbox-pane { min-height: 0; overflow: auto; padding: 12px 16px; }
-    .cockpit {
+    .board-layout {
       flex: 1;
-      display: grid;
-      grid-template-columns: 1fr 4px 380px;
+      display: flex;
+      flex-direction: column;
       min-height: 0;
     }
-    .board-pane, .rail-pane { min-height: 0; overflow: hidden; }
+    .board-pane { flex: 1; min-height: 0; overflow: hidden; }
     .board-pane.stale { opacity: 0.6; transition: opacity 120ms ease; }
-    .splitter { background: rgba(0,0,0,0.12); cursor: col-resize; }
-    .rail-pane { border-left: 1px solid rgba(0,0,0,0.08); background: #fafafa; }
   `,
 })
 export class CockpitComponent {
   selectedTask: string | null = null;
   showIntake = false;
+  private taskDetailRef: MatDialogRef<TaskDetailDialogComponent> | null = null;
 
   constructor(
     public ui: UiStateService,
@@ -151,12 +141,32 @@ export class CockpitComponent {
     return this.router.url.includes('/board') ? 'board' : 'inbox';
   }
 
-  get selectedRow(): ConveyorTask | null {
-    return (this.ui.state()?.tasks ?? []).find((t) => t.name === this.selectedTask) ?? null;
-  }
-
   get awaiting(): InboxItem[] {
     return (this.ui.state()?.inbox ?? []).filter((i) => i.status === 'awaiting-approval');
+  }
+
+  openTaskDetail(taskName: string): void {
+    const task = (this.ui.state()?.tasks ?? []).find((t) => t.name === taskName) ?? null;
+    this.selectedTask = taskName;
+    if (this.taskDetailRef) {
+      this.taskDetailRef.close();
+      this.taskDetailRef = null;
+    }
+    this.taskDetailRef = this.dialog.open(TaskDetailDialogComponent, {
+      width: '900px',
+      maxWidth: '95vw',
+      maxHeight: '90vh',
+      panelClass: 'task-detail-dialog',
+      data: {
+        taskName,
+        task,
+        work: this.ui.state()?.work ?? [],
+      },
+    });
+    this.taskDetailRef.afterClosed().subscribe(() => {
+      this.taskDetailRef = null;
+      if (this.selectedTask === taskName) this.selectedTask = null;
+    });
   }
 
   openImport(): void {
