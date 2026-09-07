@@ -23,6 +23,15 @@ role reviewer composer-2.5  max_minutes=60 max_attempts=2
 #   gate specifier
 #   gate none
 
+# Optional integration policy: what `done` does with the reviewed commit.
+# [global]
+#   integration = merge            # default: merge into the integration tree's branch
+#   integration = hold             # no merge; leave it on conveyor-<role> to merge/PR yourself
+#   integration = command: python3 .conveyor/local/bitbucket-pr   # run a hook (e.g. open a PR)
+#   integration_base = develop     # optional target branch a command hook sees as CONVEYOR_BASE
+# A command hook gets CONVEYOR_ROOT/TASK/TASK_ID/COMMIT/BRANCH/BASE in its env; nonzero exit
+# parks the task `done-command`. See bin/hooks/bitbucket-pr for a Bitbucket Cloud example.
+
 # Optional intake ceilings. Jira credentials are not in this file — they
 # live in gitignored .conveyor/local/jira.json (mode 600). Set them with
 #   conveyor intake jira --site https://example.atlassian.net \

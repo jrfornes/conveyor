@@ -22,6 +22,43 @@ def merge(commit, cwd, role):
     return False
 
 
+def _current_branch(root):
+    """The branch checked out in the integration tree, or 'main' if detached."""
+    return util.git(["symbolic-ref", "--short", "HEAD"], root, check=False) or "main"
+
+
+def integrate_done(paths, cfg, src, h):
+    """Apply the `done` integration policy (protocol §7.3). True = integrated (caller
+    moves the item to sent); False = parked in place (caller continues)."""
+    kind, command = cfg.integration_parts()
+    if kind == "hold":
+        return True
+    if kind == "merge":
+        if merge(h["commit"], paths.root, "operator"):
+            return True
+        park(paths, src, h["task"], "merge-conflict",
+             f"merging {h['commit']} into main conflicted; resolve on main, "
+             f"then run: conveyor resume {h['task']}")
+        return False
+    # command: hand the reviewed commit to an operator-supplied hook (e.g. open a PR).
+    base = cfg.integration_base or _current_branch(paths.root)
+    log = os.path.join(paths.logs, "integration", f"{h['task']}-{h['commit']}.txt")
+    os.makedirs(os.path.dirname(log), exist_ok=True)
+    env = {**os.environ, "CONVEYOR_ROOT": paths.root, "CONVEYOR_TASK": h["task"],
+           "CONVEYOR_TASK_ID": h.get("task_id", ""), "CONVEYOR_COMMIT": h["commit"],
+           "CONVEYOR_BRANCH": f"conveyor-{h['from']}", "CONVEYOR_BASE": base}
+    r = subprocess.run(command, shell=True, cwd=paths.root, env=env,
+                       capture_output=True, text=True)
+    util.atomic_write(log, f"exit: {r.returncode}\ncommand: {command}\nbase: {base}\n"
+                           f"--- stdout ---\n{r.stdout}--- stderr ---\n{r.stderr}")
+    if r.returncode == 0:
+        return True
+    park(paths, src, h["task"], "done-command",
+         f"integration command exited {r.returncode}; see logs/integration/"
+         f"{h['task']}-{h['commit']}.txt, then run: conveyor resume {h['task']}")
+    return False
+
+
 def issue_seq(rp):
     """Protocol §3.4: next sequence number for a role, under seq.lock."""
     with util.lock(rp.seq_lock):
@@ -91,11 +128,8 @@ def sweep(paths, cfg, role):
             fail(rp, src, "no-board-row")
             continue
         if h["to"] == "done":
-            if not merge(h["commit"], paths.root, "operator"):
-                park(paths, src, h["task"], "merge-conflict",
-                     f"merging {h['commit']} into main conflicted; resolve on main, "
-                     f"then run: conveyor resume {h['task']}")
-                continue
+            if not integrate_done(paths, cfg, src, h):
+                continue  # parked in place (conflict or hook failure)
             board.update(paths, h["task"], lane="done")
             os.rename(src, os.path.join(rp.sent, f))
             continue

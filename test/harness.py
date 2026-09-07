@@ -80,6 +80,13 @@ class Fixture:
         with open(os.path.join(self.scripts, role), "w") as f:
             f.write(text)
 
+    def set_global(self, text):
+        """Append lines under the existing [global] block and commit (keeps main clean).
+        The default fixture conf ends with [global], so appending lands in that section."""
+        with open(os.path.join(self.root, "conveyor.conf"), "a") as f:
+            f.write(text if text.endswith("\n") else text + "\n")
+        self.git("commit", "-q", "-am", "test: set global config")
+
     def role_env(self, role, extra=None):
         return {**self.env, "CONVEYOR_ROLE": role, "CONVEYOR_WORKTREE": self.paths.worktree(role),
                 "CONVEYOR_ROOT": self.root, **(extra or {})}

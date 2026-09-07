@@ -266,9 +266,29 @@ auditable.
 
 - Coder always forwards `ready` to reviewer after finishing (or after addressing findings).
 - Reviewer sends `findings` back to coder (bounded by `max_retries`) or `pass` to `done`.
-- **Done:** reviewer `to: done, verdict: pass` triggers merge into main as `operator`. The
-  multi-recipient structural Done condition (last role lists every other role) is deferred
-  until N > 2 (B.3).
+- **Done:** reviewer `to: done, verdict: pass` triggers the integration policy (below),
+  default a merge into main as `operator`. The multi-recipient structural Done condition
+  (last role lists every other role) is deferred until N > 2 (B.3).
+
+**Integration modes** — `[global] integration` in `conveyor.conf` decides what `done` does
+with the reviewed commit (protocol §7.3):
+
+- `merge` (default) — merge the commit into the integration tree's current branch. Keeps the
+  pipeline cumulative: the next task builds on it. Conflict parks `merge-conflict`.
+- `hold` — no merge. Mark the task `done` and leave the reviewed commit on `conveyor-<role>`
+  as the deliverable for you to merge or PR by hand. Note: later tasks branch off the
+  integration tree, so they won't see held work until you merge it.
+- `command: <cmd>` — run `<cmd>` to hand the commit off (e.g. open a pull request). The hook
+  gets `CONVEYOR_ROOT`, `CONVEYOR_TASK`, `CONVEYOR_TASK_ID`, `CONVEYOR_COMMIT`,
+  `CONVEYOR_BRANCH`, and `CONVEYOR_BASE` in its environment; nonzero exit parks `done-command`
+  and `conveyor resume` re-runs it. `integration_base` (optional) sets `CONVEYOR_BASE`;
+  it defaults to the integration tree's current branch.
+
+  A ready-to-use **Bitbucket Cloud** hook ships at `bin/hooks/bitbucket-pr`: copy it into the
+  project's `.conveyor/local/`, add `.conveyor/local/bitbucket.json`
+  (`{workspace, repo_slug, email, token, remote}`, mode 600 — same API-token model as Jira),
+  and set `integration = command: python3 .conveyor/local/bitbucket-pr`. It pushes the commit
+  to a `<task>` branch and opens a PR against `CONVEYOR_BASE`.
 - **Sync / back-propagation handoffs** (`non-forwarding` header) — not needed at N=2 (B.3).
 - Loop **refuses ambiguity:** >1 file in `in_process/` → refuse start; >1 file in `outbox/`
   → park to `needs-human/`; recovery re-runs `in_process/` before touching `new/`.
@@ -387,7 +407,7 @@ Conveyor treats ceilings as first-class MVP features, not afterthoughts.
   `max-retries`.
 - **Attempt ceiling:** `max_attempts` per role per task; parks when the agent fails to produce
   a valid handoff.
-- **Other park reasons:** `merge-conflict`, `multiple-handoffs`, `no-rules`, `no-task-file`.
+- **Other park reasons:** `merge-conflict`, `multiple-handoffs`, `no-rules`, `no-agent`, `no-task-file`, `done-command`.
 - **`conveyor resume <task>`** moves the parked item back to a role's inbox; counters are
   **never reset** — raise ceilings in config or delete and recreate the task.
 - **Token/cost ceiling** — deferred until Cursor stream-json exposes reliable usage (B.7).

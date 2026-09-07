@@ -4,6 +4,7 @@
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -154,6 +155,11 @@ class Loop:
             if not os.path.exists(os.path.join(self.wt, ".cursor", "rules", "conveyor-role.mdc")):
                 print("E_NO_RULES: .cursor/rules/conveyor-role.mdc missing", flush=True)
                 return park("no-rules", "worktree has no .cursor/rules/conveyor-role.mdc; run conveyor start")
+            if self.agent_binary() is None:
+                b = os.environ["CONVEYOR_AGENT_BIN"]
+                print(f"E_NO_AGENT: agent binary {b!r} not found or not executable", flush=True)
+                return park("no-agent", f"CONVEYOR_AGENT_BIN {b!r} is not an executable; "
+                            "install the agent or fix agent_bin in conveyor.conf, then run conveyor resume")
             prompt = self.build_prompt(path, task, attempt, last_err)
             if prompt is None:
                 return park("no-task-file", f"tasks/{task}.md is not at HEAD after merge")
@@ -216,6 +222,16 @@ class Loop:
                      "Do not end your run until it prints OK.")
         return "\n\n".join(parts)
 
+    def agent_binary(self):
+        """Resolve CONVEYOR_AGENT_BIN the way Popen(cwd=worktree) will, or None.
+        A bare name is looked up on PATH; a path with a separator is taken as-is
+        (relative paths resolve against the worktree, the agent's cwd)."""
+        b = os.environ["CONVEYOR_AGENT_BIN"]
+        if os.sep in b or (os.altsep and os.altsep in b):
+            cand = b if os.path.isabs(b) else os.path.join(self.wt, b)
+            return cand if os.path.isfile(cand) and os.access(cand, os.X_OK) else None
+        return shutil.which(b)
+
     def run_agent(self, task, hid, attempt, prompt, session):
         log = os.path.join(self.paths.logs, self.role, f"{task}_{hid}_a{attempt}.jsonl")
         cmd = [os.environ["CONVEYOR_AGENT_BIN"], "-p", "--force", "--model", self.me.model,
@@ -224,7 +240,15 @@ class Loop:
             cmd += ["--resume", session]
         cmd.append(prompt)
         with open(log, "a", encoding="utf-8") as lf:
-            self.agent = subprocess.Popen(cmd, cwd=self.wt, stdout=lf, stderr=subprocess.STDOUT)
+            try:
+                self.agent = subprocess.Popen(cmd, cwd=self.wt, stdout=lf, stderr=subprocess.STDOUT)
+            except OSError as e:
+                # Binary vanished or lost +x since the pre-flight check: degrade to a
+                # failed attempt (max-attempts will park) rather than crash the loop.
+                self.agent = None
+                msg = f"E_NO_AGENT: cannot launch {cmd[0]!r}: {e}"
+                lf.write(json.dumps({"type": "conveyor", "error": msg}) + "\n")
+                return session, msg
             rc = self.agent.wait()
             self.agent = None
             lf.write(json.dumps({"type": "conveyor", "exit": rc}) + "\n")

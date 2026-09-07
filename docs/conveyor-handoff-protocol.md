@@ -542,7 +542,7 @@ For each `outbox/<f>` (sorted):
 parse; on failure → failed/<f> + failed/<f>.reason; continue
 if sent/<f> exists: delete outbox/<f>; continue           -- already delivered
 if to == done:
-    merge into main (§7.3); on conflict → park + leave in outbox; continue
+    integrate per [global] integration (§7.3); on failure → park + leave in outbox; continue
     board: lane=done, updated_at
     rename outbox/<f> → sent/<f>; continue
 if id present anywhere under roles/<to>/inbox/:  rename outbox/<f> → sent/<f>; continue   -- crashed after delivery
@@ -593,6 +593,8 @@ $CONVEYOR_AGENT_BIN -p --force --model <model> --output-format stream-json [<cli
     > $CONVEYOR_ROOT/.conveyor/logs/<role>/<task>_<id>_a<attempt>.jsonl 2>&1
 ```
 
+Before launching, the loop verifies `$CONVEYOR_AGENT_BIN` is an executable (a bare name is resolved on `PATH`; a path with a separator is taken as-is, resolving against the worktree). If it is not, the loop logs `E_NO_AGENT` and parks with reason `no-agent` — it never attempts a run it cannot start.
+
 The loop records the exit code as the last line of the log (`{"type":"conveyor","exit":<n>}`) and extracts the session id from the first event that carries one. Exit code is informational only; §6.3's outbox check decides.
 
 ### 6.10 Parking
@@ -626,11 +628,19 @@ git merge --no-edit <commit>
 
 `--no-ff` is not used; fast-forwards are fine and keep history linear when only one role has moved.
 
-### 7.3 Merge into main on `done`
+### 7.3 Integration on `done`
 
-The reviewer's loop runs `merge.sh <commit>` with cwd = `$CONVEYOR_ROOT` (the main checkout) and `CONVEYOR_ROLE=operator`, so the merge commit is signed `By operator.`. Conflict → park with the outbox file left in place; `conveyor resume` after a manual merge re-runs the sweep, which finds the commit already an ancestor and completes normally.
+The `[global] integration` policy decides what the sweep does with a `done` handoff. Default `merge` preserves the original behavior; the other two modes were the alternatives left open in PRD question 3, now selectable.
 
-Open question 3 in the PRD (auto-merge vs. leave branch) is resolved here as auto-merge; change §6.5's `done` branch to "rename to sent, board lane=done, no merge" if the other answer is chosen.
+| `integration` | On `done` | Failure |
+|---|---|---|
+| `merge` (default) | Run `merge.sh <commit>` with cwd = `$CONVEYOR_ROOT` (the main checkout) and `CONVEYOR_ROLE=operator`, so the merge commit is signed `By operator.` | conflict → park `merge-conflict`, outbox item left in place; `conveyor resume` after a manual merge re-runs the sweep, which finds the commit already an ancestor and completes |
+| `hold` | No merge: `board.tsv` lane=done, rename outbox → sent. The reviewed commit stays on `conveyor-<role>` as the deliverable. | — |
+| `command: <cmd>` | Run `<cmd>` (`shell=True`, cwd = `$CONVEYOR_ROOT`) to hand the commit off, e.g. open a pull request. Output is logged to `.conveyor/logs/integration/<task>-<commit>.txt`. | nonzero exit → park `done-command`, outbox item left in place; `conveyor resume` re-runs |
+
+`integration_base` (optional) names the target branch a `command` hook sees as `CONVEYOR_BASE`; when unset it defaults to the branch currently checked out in `$CONVEYOR_ROOT`.
+
+A `command` hook receives identity via the environment (never as arguments), consistent with §6: `CONVEYOR_ROOT`, `CONVEYOR_TASK`, `CONVEYOR_TASK_ID`, `CONVEYOR_COMMIT` (10-hex), `CONVEYOR_BRANCH` (`conveyor-<from>`), `CONVEYOR_BASE`. A worked Bitbucket Cloud example ships at `bin/hooks/bitbucket-pr`.
 
 ### 7.4 Byline hook
 
