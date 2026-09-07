@@ -137,13 +137,22 @@ class UiApiTest(unittest.TestCase):
         self.assertTrue(any(i["id"] == "api-ticket" for i in state["inbox"]))
         item = get(f"{self.base}/api/inbox/api-ticket")
         self.assertIn("Imported from the UI API", item["source_md"])
-        req = urllib.request.Request(
-            f"{self.base}/api/inbox/approve",
-            data=json.dumps({"id": "api-ticket", "name": "api-ticket"}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req) as r:
+        # An ungraded item is refused here exactly as it is on the CLI; the
+        # cockpit only enables Approve for graded / awaiting-approval rows.
+        def approve(**extra):
+            return urllib.request.Request(
+                f"{self.base}/api/inbox/approve",
+                data=json.dumps({"id": "api-ticket", "name": "api-ticket", **extra}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(approve())
+        self.assertEqual(cm.exception.code, 409)
+        self.assertIn("has no grade", cm.exception.read().decode())
+
+        with urllib.request.urlopen(approve(force=True)) as r:
             body = json.loads(r.read())
         self.assertTrue(body["ok"])
         state = get(f"{self.base}/api/state")

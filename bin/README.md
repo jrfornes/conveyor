@@ -43,7 +43,7 @@ re-init of a pre-Stage-4 repo. It never commits — review and commit yourself. 
 
 ```
 bin/conveyor          operator CLI: init | uninstall | start | stop | task | status | log | resume
-                      | import [--refresh/--replace] | intake [config|jira|<id>] | inbox approve/skip | start-task
+                      | import [--refresh/--replace] | intake [config|jira|<id>] | inbox list/show/approve/skip/attachments | start-task
                       | approve | reject | workflow …
 bin/conveyor-ui       optional localhost cockpit (`--demo` throwaway fixture)
 bin/handoff.sh        validator + audit gate (protocol §4–5)
@@ -311,6 +311,41 @@ Where the protocol left a choice, the refusing option was taken.
     Default removes worktrees, local `conveyor-*` branches, `.conveyor/`, and
     the byline hook only when its contents match the shipped copy. `--bundle`
     also deletes init files. Refused when run from the conveyor source checkout.
+40. **The `Grade:` line is the only verdict.** `inbox.parse_grade` matches
+    `Grade: Ready|Gaps|Unusable` anchored at the start of a line (leading `#`,
+    `*`, `_`, whitespace tolerated) and takes the first hit. It previously
+    searched anywhere in the first 30 lines, so an ordinary gap — "acceptance
+    criteria are not ready" — graded the ticket `Ready`. Reading a decision out
+    of prose is exactly what the outbox rule forbids. A `grade.md` with no such
+    line is `unparsed`; no `grade.md` is `-`. The markdown tolerance is
+    deliberate: `intake/` is operator-owned and `conveyor init` never re-copies
+    it, so already-initialized repos keep parsing without a migration.
+41. **`inbox approve` refuses a grade it cannot trust.** `Ready` and `Gaps`
+    approve; `Unusable`, `unparsed`, and `-` each die with their own repair
+    line and need `--force`. The grade used to be advisory — an ungraded ticket
+    could go straight into `tasks/`. Approve still does not enqueue;
+    `start-task` does.
+42. **`conveyor intake` refuses `ready` and `started`.** Those are the two
+    statuses whose `tasks/<name>.md` is committed, so a re-grade would
+    desynchronize the inbox from `tasks/` and `board.tsv`. `grading` and
+    `improving` stay re-runnable — the loop-lock preflight covers a live run,
+    and a status left by a crashed one must not strand the item. `skipped`
+    stays re-gradable, since un-skipping is ordinary.
+43. **`comments.txt` is consumed exactly once.** A successful one-shot renames
+    it to `comments-applied.txt`. It used to be left in place, so the next
+    grade of the same item silently replayed feedback the reviewer had already
+    acted on. A rename, not a delete: the text stays readable and the protocol's
+    rename discipline holds.
+44. **`conveyor status` omits `inbox:` when there are no items**, so a repo that
+    never ran `conveyor import` prints exactly the runbook §6 sample and the M4
+    format assertion keeps holding. `inbox list` and `inbox show` are pure
+    reads: unlike the other `inbox` verbs they do not call `paths.ensure`, so
+    listing an inbox never creates queue directories.
+45. **`conveyor intake` re-creates the worktree's `tmp/` after the reset.**
+    `git reset --hard` to main HEAD prunes `tmp/` when a previous run tracked
+    it, which happens in a repo whose init files — `.gitignore` among them —
+    are not committed yet. Without this the next line crashed writing
+    `tmp/source.md`, leaving a traceback where a graded item should be.
 
 ## Not built (PRD Appendix B)
 

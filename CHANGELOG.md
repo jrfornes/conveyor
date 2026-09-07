@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+**Intake: grade integrity**
+
+- **Fixed: a ticket could be graded `Ready` by prose.** `inbox.parse_grade` searched the first 30
+  lines of `grade.md` for the words ready/gaps/unusable anywhere, so an ordinary gap — "acceptance
+  criteria are not ready" — became the verdict. The grade now comes only from a `Grade: Ready|Gaps|
+  Unusable` line (leading `#`/`*`/`_`/whitespace tolerated); a grade file without one records
+  `unparsed`, and no grade file records `-`.
+- `conveyor inbox approve` refuses `Unusable`, `unparsed`, and `-` unless you pass `--force`. The
+  grade was previously advisory: an ungraded ticket could go straight into `tasks/`.
+- `conveyor intake` refuses an item that is `ready` or `started` — its task file is already
+  committed. `skipped` items stay re-gradable.
+- `conveyor intake` now prints the recorded verdict (`graded <id>  Ready`), and warns when
+  `grade.md` carried no `Grade:` line.
+- `comments.txt` is renamed to `comments-applied.txt` after a successful one-shot, so operator
+  feedback reaches the ticket-reviewer once instead of being replayed on the next grade.
+- Templates: `intake/ticket-reviewer.md` and `intake/rubric.md` now state that the first line of
+  `grade.md` is the verdict. **These are operator-owned and `conveyor init` never overwrites them**,
+  so an already-initialized repo keeps its copies and must merge the change by hand — see runbook
+  §9. Nothing breaks if you don't: the parser tolerates the old wording.
+
+**Intake: CLI visibility**
+
+- `conveyor inbox list` and `conveyor inbox show <id>` — the CLI had no read surface for the inbox
+  at all; listing existed only in the cockpit. Both are pure reads.
+- `conveyor status` gains an `inbox:` block, omitted entirely when nothing has been imported so the
+  runbook §6 format is unchanged for repos that do not use intake.
+- **Fixed: `conveyor intake <id> --comments <file>` always died with the usage message.** The
+  positional count ran before the flag was stripped, so the flag's value was read as a second id.
+- **Fixed: `conveyor intake` could crash with `FileNotFoundError` on `tmp/source.md`.** The
+  worktree reset prunes `tmp/` when a previous run tracked it (a repo whose init files are not
+  committed yet); it is re-created after the reset.
+
+**Docs**
+
+- Protocol §2.4 gains the legal `grade` values, `comments-applied.txt`, and the inbox status
+  transition table (promoted out of `docs/archive/`, where it was the only copy).
+- Protocol §4.1/§4.2 document the `ticket-reviewer` exemptions that `handoff.sh` has always
+  implemented — `to: operator`, no `tasks/<task>.md`, no board row — which §4.2 as written would
+  have rejected.
+- Protocol §9 gains invariant 13 (inbox items are whole, legal, and backed by their task file),
+  covered by `test/test_inv13_inbox.py`.
+- Protocol §10 gains rows for `import`, `intake`, `inbox`, `start-task`, `approve`, and `reject`;
+  it previously documented no intake command. It now states that `inbox approve` does not enqueue.
+- Runbook: `conveyor init` copies `intake/` (§3 was stale); new rows for `inbox list`/`show`,
+  `--improve`, `--comments`, `--force`, and `start-task`; `inbox:` in the §6 status sample; a new
+  §9 upgrade note.
+
 **Maintenance**
 
 - Jira site URL validation: `https` required (`http://127.0.0.1` / `localhost` for local Jira only); `/browse/KEY` pasted URLs canonicalized; cross-host redirects refused so Basic auth cannot follow a redirect off-site.

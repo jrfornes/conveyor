@@ -30,6 +30,11 @@ Grade: Ready | Gaps | Unusable
 2. ...
 ```
 
+The **first line is the verdict**, written exactly as `Grade: Ready`, `Grade: Gaps`, or
+`Grade: Unusable`. It is the only thing read as a verdict — nothing in the gap list below it
+counts, however clearly it is worded. A `grade.md` without that line is recorded as `unparsed`,
+which blocks `conveyor inbox approve`.
+
 Ready = every rubric item is present and testable. Gaps = can be rewritten. Unusable = missing the problem itself.
 
 ## Proposed task (Improve)

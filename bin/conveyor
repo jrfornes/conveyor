@@ -6,8 +6,9 @@ conveyor init [<path>] | uninstall [--yes] [--bundle]
            | status | log <role> [<task>] | resume <task> [--to <role>]
            | import --source manual|jira [--title ...]
            | import --refresh <id> | import --replace <id>
-           | intake <id> [--improve] | intake config | intake jira
-           | inbox approve <id> [--name <task>] | inbox skip <id>
+           | intake <id> [--improve] [--comments <file>] | intake config | intake jira
+           | inbox list | inbox show <id>
+           | inbox approve <id> [--name <task>] [--force] | inbox skip <id>
            | inbox attachments <id> [--select ids|none]
            | start-task <name> | approve <id> | reject <id>
            | role list | show <name> | new <name> [--from <other>] | delete <name>
@@ -622,6 +623,32 @@ def cmd_status(args):
     print("board:")
     for r in board.read(paths):
         print(f"  {r['name']:<12}{r['lane']:<13}audit {r['audit_count']}  retry {r['retry_count']}")
+    _print_inbox_block(paths)
+
+
+# Items past the operator's decision; listed as a count, not a row.
+INBOX_TERMINAL = ("started", "skipped")
+
+
+def _print_inbox_block(paths):
+    """`inbox:` section of `conveyor status`, omitted when there is no inbox.
+
+    A repo that never ran `conveyor import` prints exactly what runbook §6
+    shows, so the M4 status-format assertion keeps holding.
+    """
+    items = inbox.list_items(paths)
+    if not items:
+        return
+    print("inbox:")
+    done = {k: 0 for k in INBOX_TERMINAL}
+    for it in items:
+        if it["status"] in done:
+            done[it["status"]] += 1
+            continue
+        print(f"  {it['id']:<12}{it['status']:<19}{it['grade']}")
+    tail = ", ".join(f"{n} {k}" for k, n in done.items() if n)
+    if tail:
+        print(f"  ({tail})")
 
 
 def cmd_log(args):
@@ -889,21 +916,43 @@ def cmd_intake_jira(args):
         print(f"token_set {r['token_set']}")
 
 
+INTAKE_USAGE = (
+    "usage: conveyor intake <id> [--improve] [--comments <file-or-text>]\n"
+    "       conveyor intake config | conveyor intake jira"
+)
+
+
+def _refuse_committed(meta, iid):
+    """Refuse to re-grade an item whose task file is already committed.
+
+    `grading` / `improving` stay re-runnable: the loop-lock preflight covers a
+    live run, and a status left behind by a crashed one must not strand the
+    item. `skipped` stays re-gradable too — un-skipping is ordinary.
+    """
+    status = meta.get("status") or "imported"
+    task = meta.get("task_name") or iid
+    if status == "ready":
+        util.die(f"conveyor intake: {iid} is ready; tasks/{task}.md is already committed")
+    if status == "started":
+        util.die(f"conveyor intake: {iid} is started; its task is already in the pipeline")
+
+
 def cmd_intake(args):
     if args and args[0] == "config":
         return cmd_intake_config(args[1:])
     if args and args[0] == "jira":
         return cmd_intake_jira(args[1:])
     root, cfg, paths = setup()
-    names = [a for a in args if not a.startswith("--")]
+    names = _positionals(args)
     if len(names) != 1:
-        util.die("usage: conveyor intake <id> [--improve] | conveyor intake config | conveyor intake jira")
+        util.die(INTAKE_USAGE)
     iid = names[0]
     improve = "--improve" in args
     try:
         meta = inbox.read_meta(paths, iid)
     except inbox.InboxError as e:
         util.die(f"conveyor intake: {e}")
+    _refuse_committed(meta, iid)
     comments = _flag(args, "--comments")
     if comments:
         inbox.write_file(paths, iid, "comments.txt", util.read_text(comments) if os.path.isfile(comments) else comments)
@@ -924,6 +973,9 @@ def cmd_intake(args):
         wt = ensure_worktree(root, paths, config.INTAKE_ROLE)
         # One-shot: start from current main so leftover grade.md cannot conflict.
         util.git(["reset", "--hard", util.git(["rev-parse", "HEAD"], root)], wt)
+        # The reset prunes tmp/ when a previous run tracked it (a repo whose
+        # init files, .gitignore included, are not committed yet).
+        os.makedirs(os.path.join(wt, "tmp"), exist_ok=True)
         src = inbox.read_file(paths, iid, "source.md")
         util.atomic_write(os.path.join(wt, "tmp", "source.md"), src if src.endswith("\n") else src + "\n")
         att_dest = os.path.join(wt, "tmp", "attachments")
@@ -980,13 +1032,82 @@ def cmd_intake(args):
     if r.returncode != 0:
         inbox.update_meta(paths, iid, status="imported")
         util.die(f"conveyor intake: ticket-reviewer loop failed ({r.returncode}):\n{r.stdout}{r.stderr}")
-    print((r.stdout or "").strip() or f"intake {iid} finished")
+    out = (r.stdout or "").strip()
+    if out:
+        print(out)
+    _consume_comments(paths, iid)
+    _report_grade(paths, iid, improve)
+
+
+def _consume_comments(paths, iid):
+    """Rename comments.txt → comments-applied.txt after a successful one-shot.
+
+    A rename, not a delete: the text stays readable, and the next run's prompt
+    (role-loop.sh build_intake_prompt) no longer picks up feedback the
+    ticket-reviewer has already seen.
+    """
+    d = os.path.join(paths.inbox, iid)
+    src = os.path.join(d, "comments.txt")
+    if os.path.isfile(src) and util.read_text(src).strip():
+        os.rename(src, os.path.join(d, "comments-applied.txt"))
+
+
+def _report_grade(paths, iid, improve):
+    """Print the recorded verdict, and say so when the grade file lacked one."""
+    grade = inbox.read_meta(paths, iid)["grade"]
+    print(f"{'improved' if improve else 'graded'} {iid}  {grade}")
+    if grade == "unparsed":
+        print(f'warning: {iid} grade.md has no "Grade: Ready|Gaps|Unusable" line; '
+              "recorded as unparsed")
 
 
 INBOX_USAGE = (
-    "usage: conveyor inbox approve <id> [--name <task>] | conveyor inbox skip <id>\n"
+    "usage: conveyor inbox list | conveyor inbox show <id>\n"
+    "       conveyor inbox approve <id> [--name <task>] [--force]\n"
+    "       conveyor inbox skip <id>\n"
     "       conveyor inbox attachments <id> [--select ids|none]"
 )
+# Grades an approve will act on without --force. Everything else in
+# inbox.GRADE_VALUES means the operator has nothing trustworthy to approve.
+APPROVABLE = ("Ready", "Gaps")
+# Documents shown by `conveyor inbox show`, in reading order.
+SHOW_FILES = ("source.md", "grade.md", "proposed-task.md",
+              "comments.txt", "comments-applied.txt")
+
+
+def _inbox_list(paths):
+    items = inbox.list_items(paths)
+    if not items:
+        return print("(no inbox items)")
+    for it in items:
+        print(f"{it['id']:<14}{it['source']:<8}{it['status']:<19}"
+              f"{it['grade']:<11}{it['title']}")
+
+
+def _inbox_show(paths, iid):
+    meta = inbox.read_meta(paths, iid)
+    print(f"id: {iid}")
+    for k in inbox.META_KEYS:
+        print(f"{k}: {meta[k]}")
+    for name in SHOW_FILES:
+        text = inbox.read_file(paths, iid, name)
+        if text.strip():
+            print(f"\n--- {name} ---\n{text.rstrip()}")
+
+
+def _approve_guard(iid, grade, force):
+    """Refuse an approve the grade does not support. `--force` overrides."""
+    if force or grade in APPROVABLE:
+        return
+    tail = "or approve anyway with --force"
+    if grade == "Unusable":
+        util.die(f"conveyor inbox approve: {iid} is graded Unusable; "
+                 f"fix the ticket and re-grade, {tail}")
+    if grade == "unparsed":
+        util.die(f'conveyor inbox approve: {iid} grade.md has no "Grade:" line; '
+                 f"re-grade it, {tail}")
+    util.die(f"conveyor inbox approve: {iid} has no grade; "
+             f"run conveyor intake {iid} first, {tail}")
 
 
 def cmd_inbox_attachments(args):
@@ -1018,10 +1139,23 @@ def cmd_inbox_attachments(args):
 
 
 def cmd_inbox(args):
-    if not args or args[0] not in ("approve", "skip", "attachments"):
+    if not args or args[0] not in ("list", "show", "approve", "skip", "attachments"):
         util.die(INBOX_USAGE)
     if args[0] == "attachments":
         return cmd_inbox_attachments(args[1:])
+    # list/show are pure reads (protocol §10): never create queue directories.
+    if args[0] in ("list", "show"):
+        _, _cfg, paths = setup()
+        if args[0] == "list":
+            if len(args) != 1:
+                util.die(INBOX_USAGE)
+            return _inbox_list(paths)
+        if len(args) != 2:
+            util.die("usage: conveyor inbox show <id>")
+        try:
+            return _inbox_show(paths, args[1])
+        except inbox.InboxError as e:
+            util.die(f"conveyor inbox: {e}")
     root, cfg, paths = setup()
     paths.ensure(cfg)
     if args[0] == "skip":
@@ -1034,7 +1168,7 @@ def cmd_inbox(args):
         return print(f"skipped {args[1]}")
     names = _positionals(args[1:])
     if len(names) != 1:
-        util.die("usage: conveyor inbox approve <id> [--name <task>]")
+        util.die("usage: conveyor inbox approve <id> [--name <task>] [--force]")
     iid = names[0]
     task = _flag(args, "--name") or iid
     if not handoff.TASK_RE.match(task):
@@ -1043,6 +1177,7 @@ def cmd_inbox(args):
         item = inbox.item(paths, iid)
     except inbox.InboxError as e:
         util.die(f"conveyor inbox: {e}")
+    _approve_guard(iid, item["grade"], "--force" in args)
     text = (item["proposed_md"] or attachments.strip_footer(item["source_md"])).strip()
     if not text:
         util.die("conveyor inbox approve: no proposed-task.md or source.md to write")

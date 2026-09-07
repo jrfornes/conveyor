@@ -25,7 +25,7 @@ cursor-agent --list-models
 
 ## 3. Project setup
 
-1. From the target repo root (with `conveyor` on `PATH`): `conveyor init`. This copies `constitution.md`, `constitution/`, `roles/`, `conveyor.conf.example`, and (only if missing) `project.md`; creates `conveyor.conf` from the example when missing; creates `tasks/`; and appends the required `.gitignore` entries. Safe to re-run — operator-owned files are never overwritten. Review and commit.
+1. From the target repo root (with `conveyor` on `PATH`): `conveyor init`. This copies `constitution.md`, `constitution/`, `roles/`, `intake/` (the ticket-reviewer prompt and grading rubric), `conveyor.conf.example`, and (only if missing) `project.md`; creates `conveyor.conf` from the example when missing; creates `tasks/`; and appends the required `.gitignore` entries. Safe to re-run — operator-owned files are never overwritten. Review and commit.
 2. Edit `project.md`: test command, language, anything the reviewer should treat as a requirement.
 3. Edit `conveyor.conf` and fill in the two model names.
 4. Make sure the project's test command passes on a clean checkout. On `ready` and `pass`, `handoff.sh` runs the required gates from the worktree's `project.md` (legacy `## Test command` fence or `## Gates` + `## Required on`). An empty fence or command is skipped. A nonzero exit is `E_GATE_FAILED`; `cat .conveyor/logs/gates/<role>-<task>-<commit>-<name>.txt` for the output. Run a gate manually with `conveyor gate run <name>` (add `--role <role>` to use that worktree and inbound commit).
@@ -53,9 +53,13 @@ cursor-agent --list-models
 | Import a ticket | `conveyor import --source manual` (or `jira`; set Jira creds with `conveyor intake jira --site … --email … --token-stdin` or Inbox → Intake settings → Jira — failures print `failed <KEY>  <status> <reason>` and skip the row). Jira attachments are listed on import (not downloaded); video/audio print a watch-in-Jira notice. Empty description skips Grade only when there are also no attachments. |
 | Re-fetch a Jira inbox item | `conveyor import --refresh <id>` (only `imported`; overwrites `source.md` in place; refreshes the attachment list, keeps selection by id) |
 | Replace inbox source text | `conveyor import --replace <id>` (body on stdin; only `imported`; Conveyor rewrites the attachments footer) |
+| See the inbox | `conveyor inbox list` (id, source, status, grade, title) or `conveyor inbox show <id>` for one item's documents |
 | Choose intake attachments | `conveyor inbox attachments <id>` or `… --select 10001,10002` / `--select none` |
-| Run intake on an inbox item | `conveyor intake <id>` (downloads selected scannable files into the intake worktree `tmp/attachments/`) |
-| Accept or skip a graded ticket | `conveyor inbox approve <id>` or `conveyor inbox skip <id>` |
+| Grade an inbox item | `conveyor intake <id>` — prints `graded <id>  <grade>`. Downloads selected scannable files into the intake worktree `tmp/attachments/`. Refused when the item is `ready` or `started` (its task file is already committed); a `skipped` item can still be re-graded |
+| Rewrite an inbox item into a task | `conveyor intake <id> --improve` (add `--comments <file-or-text>` to send the reviewer your notes; they are consumed once, then kept as `comments-applied.txt`) |
+| Accept or skip a graded ticket | `conveyor inbox approve <id> [--name <task>]` or `conveyor inbox skip <id>`. Approve writes and commits `tasks/<task>.md` but does **not** enqueue it |
+| Approve a ticket the grade does not support | `conveyor inbox approve <id> --force` — needed when the grade is `Unusable`, `unparsed`, or `-` |
+| Send an approved ticket to the pipeline | `conveyor start-task <name>` (creates the board row and the first handoff) |
 | Approve or reject a gated handoff | `conveyor approve <id>` or `conveyor reject <id>` |
 | List or switch workflows | `conveyor workflow list` or `conveyor workflow activate <slug>` |
 | Create a coding role | `conveyor role new <name>` (optional `--from <other>`); then add it with `conveyor workflow edit` |
@@ -86,7 +90,21 @@ needs-human:
 board:
   add-login   coder        audit 2  retry 1
   fix-cache   needs-human  audit 7  retry 4
+inbox:
+  proj-9      awaiting-approval  Gaps
+  proj-12     imported           -
+  (1 started, 1 skipped)
 ```
+
+The `inbox:` block is omitted entirely when nothing has been imported, so a repo that does not use
+intake sees exactly the first three sections. Items already past your decision (`started`,
+`skipped`) are counted on the last line rather than listed. The third column is the grade:
+
+- `Ready` / `Gaps` — the ticket-reviewer's verdict; both can be approved
+- `Unusable` — the ticket is missing the problem itself; `inbox approve` refuses without `--force`
+- `unparsed` — `grade.md` exists but has no `Grade: Ready|Gaps|Unusable` line, so there is no
+  verdict to trust. Re-grade it; `conveyor inbox show <id>` prints what the reviewer actually wrote
+- `-` — not graded yet
 
 High `audit` with low `retry` means the coder is being challenged and fixing things itself: healthy. High `retry` means coder and reviewer disagree: read the findings in `git log conveyor-reviewer` and probably sharpen the task file.
 
@@ -101,3 +119,19 @@ High `audit` with low `retry` means the coder is being challenged and fixing thi
 ## 8. Testing without Cursor
 
 Set `CONVEYOR_AGENT_BIN=./test/fake-agent` and `CONVEYOR_FAKE_SCRIPT=<script>`. The fake agent replays a script of `commit`, `draft`, `handoff`, `sleep`, `crash`, `exit` lines (protocol spec §11). The test suite runs every protocol invariant this way.
+
+## 9. Upgrading an already-initialized repo
+
+`conveyor init` templates `intake/ticket-reviewer.md` and `intake/rubric.md` and never overwrites
+them, so a repo initialized before the grading contract was tightened keeps its own copies. Nothing
+breaks: the grade parser tolerates the wording those files produce. To pick up the change, diff
+your copies against the ones in the Conveyor checkout and merge by hand:
+
+```
+diff -u intake/ticket-reviewer.md <conveyor>/intake/ticket-reviewer.md
+diff -u intake/rubric.md          <conveyor>/intake/rubric.md
+```
+
+The only substantive addition is that `grade.md`'s first line must be `Grade: Ready`, `Grade: Gaps`,
+or `Grade: Unusable`. Without it a grade is recorded as `unparsed` and `conveyor inbox approve`
+refuses it — which is the intended behavior, not a regression.

@@ -120,7 +120,7 @@ loop.lock/        mkdir-style lock; contains pid file
 | `logs/gates/` | `handoff.sh` | nobody |
 | `needs-human/` | any loop | `conveyor resume` |
 | `board.tsv` | `handoff.sh`, loops, `conveyor task/resume` — under `board.lock` | — |
-| `.conveyor/inbox/<id>/` | `conveyor import` (create, or refresh/replace `source.md` on an existing id) / `conveyor intake` | `conveyor inbox approve/skip` |
+| `.conveyor/inbox/<id>/` | `conveyor import` (create, or refresh/replace `source.md` on an existing id) / `conveyor intake` / `conveyor inbox attachments` | `conveyor inbox approve/skip` |
 | `.conveyor/approvals/pending/` | the gated role's loop (sweep hold) | `conveyor approve` / `conveyor reject` |
 
 ### 2.4 Inbox item (`.conveyor/inbox/<id>/`)
@@ -134,11 +134,41 @@ Vendor-agnostic intake. Adapters fill `source.md` and metadata; they MUST NOT wr
   grade.md              written from the ticket-reviewer commit
   proposed-task.md      written from the ticket-reviewer commit on Improve
   comments.txt          human reject notes for an Improve retry
+  comments-applied.txt  comments.txt after the run that consumed it
   attachments.json      Jira attachment manifest (no token); operator selection
   attachments/          downloaded bytes for selected files (id-prefixed names)
 ```
 
 `status`: `imported` | `grading` | `graded` | `improving` | `awaiting-approval` | `ready` | `started` | `skipped`.
+
+`grade`: `Ready` | `Gaps` | `Unusable` | `unparsed` | `-`. It is derived only from the first line
+of `grade.md` matching `Grade: <verdict>` (leading `#`, `*`, `_`, and whitespace are tolerated).
+A `grade.md` that exists with no such line is `unparsed`; no `grade.md` is `-`. Prose is never read
+as a verdict — a gap that reads "acceptance criteria are not ready" MUST NOT grade the ticket
+`Ready`.
+
+`comments.txt` is written by the operator (`conveyor intake --comments`, or the cockpit) and read
+into the ticket-reviewer's prompt. A successful one-shot MUST rename it to `comments-applied.txt`,
+so feedback reaches the reviewer exactly once and a later run does not silently replay it.
+
+**Status transitions.** Every arrow is a `meta.txt` rewrite (lock, rewrite, rename); the item
+directory is never renamed, because the id is stable.
+
+| From | Event | To |
+|---|---|---|
+| — | `conveyor import` | `imported` |
+| any but `ready` / `started` | `conveyor intake <id>` | `grading` |
+| any but `ready` / `started` | `conveyor intake <id> --improve` | `improving` |
+| `grading` / `improving` | sweep applies a `ticket-reviewer → operator` handoff with no `proposed-task.md` | `graded` |
+| `grading` / `improving` | the same, with a non-empty `proposed-task.md` | `awaiting-approval` |
+| `grading` / `improving` | park, non-zero loop exit, or any failure | `imported` |
+| any | `conveyor inbox approve <id>` | `ready` (sets `task_name`; commits `tasks/<task_name>.md`) |
+| `ready` | `conveyor start-task <name>` | `started` (creates the board row) |
+| any | `conveyor inbox skip <id>` | `skipped` |
+
+`ready` and `started` are the two statuses whose task file is already committed; re-grading either
+would desynchronize the inbox from `tasks/` and `board.tsv`, so `conveyor intake` MUST refuse them.
+`skipped` stays re-gradable.
 
 ---
 
@@ -300,6 +330,20 @@ In this order, stopping at the first failure:
 6. `(from, to, verdict)` is a permitted triple (`E_BAD_ROUTE`).
 7. `tasks/<task>.md` exists at HEAD (`E_TASK_FILE`).
 8. `task` has a row in `board.tsv` and its `lane` equals `from` (`E_NOT_MY_TASK`).
+
+**`ticket-reviewer` exemptions.** Intake grades a ticket that has not become a task yet, so three
+of the checks above cannot apply to it. When `from` is `ticket-reviewer`:
+
+- step 4 also accepts `to: operator` (the intake-only recipient of §3.2);
+- step 7 is skipped — `task` is an inbox id, not a task name, and there is no `tasks/<task>.md`
+  (`E_TASK_FILE` is not raised);
+- step 8 is skipped — an inbox item has no `board.tsv` row (`E_NOT_MY_TASK` is not raised), and
+  §4.1 precondition 5 matches against the item in `roles/ticket-reviewer/inbox/in_process/` as
+  usual;
+- `task_id` is `intake-<task>` rather than a board lookup.
+
+Every other check in §4.1–§4.4 applies unchanged, including the byline (§7.4) and the audit gate
+(§5). Intake also skips all project gates (§8).
 
 ### 4.3 Commit validation
 
@@ -660,6 +704,7 @@ These are the properties tests assert. Each is stated so that violating it is de
 10. **Bylines are total.** Every commit reachable from any `conveyor-<role>` branch, made after `conveyor start`, ends with `By <role>.` for the role whose worktree made it.
 11. **Restart is a no-op on state.** Killing every loop at any instant and running `conveyor start` results in the same set of files in `completed/`, `sent/`, `done` lanes, and `needs-human/` as an uninterrupted run, modulo timestamps.
 12. **Ambiguity parks; it never guesses.** More than one outbox file, more than one in-process item, a merge conflict, or a missing rules file all end in `needs-human/` or a refused start, never in a chosen branch.
+13. **Inbox items are whole, legal, and backed by their task file.** Every `.conveyor/inbox/<id>/` arrives by rename from `.tmp-<id>/`, so a visible item always has `meta.txt` and `source.md` and never a `.tmp` file; `status` is one of the eight values and `grade` one of the five in §2.4; every item with `status` `ready` or `started` names a `task_name` whose `tasks/<task_name>.md` is committed on `main`.
 
 ---
 
@@ -674,6 +719,16 @@ These are the properties tests assert. Each is stated so that violating it is de
 | `conveyor status` | Print §2.3 state for each role, `needs-human/` with reasons, and `board.tsv`. Pure read. |
 | `conveyor log <role> [<task>]` | Pretty-print the newest matching `.jsonl`. Pure read. |
 | `conveyor resume <task> [--to <role>]` | §6.10. Refused when the task is parked but has no board row, before anything is renamed. |
+| `conveyor import --source manual\|jira [--title ...]` | Read the ticket body from stdin (Jira: fetch each key found in it, §2.4 adapters). Create `.conveyor/inbox/<id>/` by renaming `.tmp-<id>/` into place, `status: imported`. Never writes `tasks/`. A per-key fetch failure prints `failed <KEY>  <status> <reason>` and creates no item. |
+| `conveyor import --refresh <id>` / `--replace <id>` | Rewrite `source.md` of an existing item in place — `--refresh` re-fetches from the host (Jira items only, requires `external_id`; refreshes the attachment list, keeps selection by id), `--replace` takes the body on stdin (Conveyor rewrites the attachments footer). Both refused unless `status` is `imported`. |
+| `conveyor intake <id> [--improve] [--comments <file-or-text>]` | Run the `ticket-reviewer` one-shot (§2.4 transitions). Reset its worktree to `main` HEAD, write `tmp/source.md`, download selected attachments into `tmp/attachments/`, enqueue an operator handoff `to: ticket-reviewer`, `task` = the inbox id, `verdict: ready`, body `mode: grade\|improve`, then run one `role-loop.sh --once`. Refused while the `ticket-reviewer` loop lock holds a live pid, and refused when `status` is `ready` or `started`. On success, renames `comments.txt` to `comments-applied.txt` and prints the recorded grade. Any failure or park returns the item to `imported`. |
+| `conveyor intake config \| jira` | Surgical `[inbox]` edit (model and intake ceilings) and the Jira credential file `.conveyor/local/jira.json` (mode 600). Neither requires stopped loops. |
+| `conveyor inbox list \| show <id>` | Print inbox items, or one item's `meta.txt` fields and non-empty documents. Pure reads. |
+| `conveyor inbox attachments <id> [--select ids\|none]` | List the attachment manifest, or rewrite the operator selection. Bytes are fetched on `intake`, not here. |
+| `conveyor inbox approve <id> [--name <task>] [--force]` | Write and commit `tasks/<task>.md` on main (`By operator.`) from `proposed-task.md`, else `source.md` with the `## Conveyor attachments` footer stripped; set `status: ready` and `task_name`. **Does not enqueue** — no board row and no handoff are created; `start-task` does that. Refused when `tasks/<task>.md` already exists, and refused unless `grade` is `Ready` or `Gaps`, which `--force` overrides. |
+| `conveyor inbox skip <id>` | Set `status: skipped`. The item stays on disk and stays re-gradable. |
+| `conveyor start-task <name>` | Board row + operator `ready` handoff for an already-committed `tasks/<name>.md` (the `conveyor task` path without the write). Flips a matching `ready` inbox item to `started`. |
+| `conveyor approve <id>` / `reject <id> [--comments <file>]` | §3.2's human gate: deliver a handoff held in `.conveyor/approvals/pending/` to the next role, or return it to the gated role as `findings` with the comments as its body. `<id>` may be the handoff id or the task name. `task_id` and `audit_count` are preserved. Unrelated to `inbox approve`. |
 | `conveyor workflow list\|show\|new\|edit\|delete\|activate` | Saved presets in `.conveyor/workflows/<slug>.json`, with `.conveyor/active` naming the applied one. `activate` rewrites the `role` and `gate` lines in `conveyor.conf`, keeping model and ceilings for roles the new order retains. Refused while any role's loop lock holds a live pid. Dropped roles' queue directories are reported, never removed; their worktrees are pruned by the next `conveyor start` (the branch is kept). |
 
 The operator's `task` command is the only place a handoff is created without `handoff.sh`. It MUST produce a file that passes every check in §4.2–4.4 with `from: operator`, and it goes through the same audit-free path because the operator is the human; `audit_count` is not incremented.

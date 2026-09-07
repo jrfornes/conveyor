@@ -15,6 +15,10 @@ META_KEYS = ("source", "title", "url", "external_id", "status", "grade",
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
 SLUG_RE = re.compile(r"[^a-z0-9]+")
 RESERVED_IDS = {"config", "jira"}  # collide with `conveyor intake config|jira`
+GRADE_VALUES = ("Ready", "Gaps", "Unusable", "unparsed", "-")
+# The `Grade:` line the ticket-reviewer prompt mandates, tolerating markdown it
+# may wrap around it: `**Grade:** Ready`, `## Grade: Ready`.
+GRADE_RE = re.compile(r"^[#*_\s]*grade[*_\s]*:[*_\s]*(ready|gaps|unusable)\b", re.I)
 
 
 class InboxError(Exception):
@@ -144,6 +148,7 @@ def item(paths, iid):
     meta["grade_md"] = read_file(paths, iid, "grade.md")
     meta["proposed_md"] = read_file(paths, iid, "proposed-task.md")
     meta["comments"] = read_file(paths, iid, "comments.txt")
+    meta["comments_applied"] = read_file(paths, iid, "comments-applied.txt")
     meta["attachments"] = attachments.read(paths, iid)
     return meta
 
@@ -165,10 +170,17 @@ def list_items(paths):
 
 
 def parse_grade(text):
-    """Ready / Gaps / Unusable from the grade file, else -."""
-    for line in text.splitlines()[:30]:
-        low = line.strip().lower()
-        for g in ("ready", "gaps", "unusable"):
-            if re.search(rf"\b{g}\b", low):
-                return g.capitalize() if g != "gaps" else "Gaps"
-    return "-"
+    """Ready / Gaps / Unusable from the grade file's `Grade:` line.
+
+    `unparsed` when a grade file exists without one, `-` when there is no
+    grade file. The match is anchored at the start of the line, so a gap that
+    reads "acceptance criteria are not ready" can never become a verdict: the
+    outbox is the only signal, and prose is never one.
+    """
+    if not text.strip():
+        return "-"
+    for line in text.splitlines():
+        m = GRADE_RE.match(line)
+        if m:
+            return m.group(1).capitalize()
+    return "unparsed"
