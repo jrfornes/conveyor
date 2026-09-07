@@ -370,6 +370,15 @@ Where the protocol left a choice, the refusing option was taken.
     `.cursor/rules/conveyor-role.mdc` is refused outright rather than warned about:
     each role's copy differs, so merging a commit that carries one would run a role
     under another role's instructions.
+48. **The run log is stamped by a separate process.** `role-loop.sh --stamp`
+    reads the agent's stdout and writes each line back dated (§6.9), rather than
+    the loop relaying the stream itself. A relaying loop would sit in the
+    agent's output path, so `kill -9` of the loop would end the agent with
+    `SIGPIPE` mid-run; the stamper keeps the killed-loop behaviour the plain
+    redirect had — agent and log carry on, the run finishes, and the restarted
+    loop finds its handoff (invariant 11). Lines are dated when read, which for
+    an agent that buffers is the time Conveyor saw them, not the time the agent
+    produced them.
 
 ## Not built (PRD Appendix B)
 

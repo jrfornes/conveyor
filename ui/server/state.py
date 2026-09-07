@@ -198,10 +198,11 @@ def read_logs(root, role, task=None):
         kind = ev.get("type", "?")
         detail = " ".join(
             str(ev[k])
-            for k in ("subtype", "name", "command", "text", "output", "result", "exit")
+            for k in ("event", "subtype", "name", "command", "text", "output",
+                      "result", "error", "exit")
             if k in ev and ev[k] not in ("", None)
         )
-        events.append({"type": kind, "detail": detail[:400], "raw": ev})
+        events.append({"type": kind, "at": ev.get("at", ""), "detail": detail[:400], "raw": ev})
     return {"filename": filename, "events": events}
 
 

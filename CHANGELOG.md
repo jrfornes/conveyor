@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+**Dated role logs**
+
+- **Run logs carry the time of every line.** `.conveyor/logs/<role>/<task>_<id>_a<attempt>.jsonl`
+  used to be a plain redirect of the agent's stream, with no clue when anything happened. Each line
+  now gets an `at` header (UTC, the format used everywhere else) as its first key; the agent's own
+  keys are untouched, and non-JSON output is wrapped so the file stays valid JSONL. Protocol §6.9.
+- The stamping runs as its own process (`role-loop.sh --stamp`), not inside the loop, so a
+  `kill -9` of a loop still leaves the agent running and its output landing in the log
+  (invariant 11).
+- The loop brackets each run with dated records of its own: `event: run` (attempt, model, whether
+  the session was resumed) before launching, `event: exit` with the exit code after.
+- `conveyor log <role>` prints the run's date in the header and a UTC clock column per line, with
+  wrapped output indented into the same column. Logs written before this change still render, with
+  a blank clock.
+- **`.conveyor/logs/<role>/loop.log` is a timeline.** Every line a loop prints is prefixed with a
+  timestamp, and the loop now says which item it picked up, each attempt it started and the agent's
+  exit code, and how the item ended. Protocol §6.11.
+- The cockpit's Log tab shows the same clock column and the run's start time.
+
 **Intake: rubric UX**
 
 - Split the operator checklist (`intake/rubric.md`, items only) from Conveyor's fixed grade

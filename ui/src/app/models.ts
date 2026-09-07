@@ -102,6 +102,8 @@ export interface ConveyorState {
 
 export interface LogEvent {
   type: string;
+  /** UTC timestamp the loop saw the line, `2026-09-07T12:34:56Z`; '' for older logs. */
+  at?: string;
   detail?: string;
   text?: string;
 }
