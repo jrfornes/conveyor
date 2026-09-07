@@ -39,7 +39,8 @@ from conveyor import (adapters, agent as agentlib, attachments, board, config, g
 
 RULE_FILES = ["constitution.md", "constitution/engineering.md", "constitution/workflow.md",
               "constitution/handoffs.md", "project.md"]
-GITIGNORE = [".worktrees/", ".conveyor/", ".cursor/rules/conveyor-role.mdc", "tmp/"]
+RULES_REL = ".cursor/rules/conveyor-role.mdc"   # git paths are always posix
+GITIGNORE = [".worktrees/", ".conveyor/", RULES_REL, "tmp/"]
 REPO = os.path.dirname(BIN)
 SHIPPED = ["constitution.md", "constitution/engineering.md", "constitution/workflow.md",
            "constitution/handoffs.md", "roles/coder.md", "roles/reviewer.md",
@@ -525,6 +526,32 @@ def validate_project_gates(root, cfg):
                  f"for {role} {verdict}")
 
 
+TRACKED_RULES = (
+    "conveyor start: {rel} is tracked in git on {refs}.\n"
+    "conveyor start regenerates that file per role, so a commit carrying one role's copy "
+    "overwrites another role's instructions on merge -- the reviewer would run under the "
+    "coder's rules.\n"
+    "Untrack it on each branch listed, then re-run:\n"
+    "  git rm --cached {rel} && git commit -m 'Untrack conveyor role rules file'"
+)
+
+
+def check_ignores(root, cfg):
+    """The role worktrees check out the *committed* .gitignore, so that -- not the
+    integration tree's working copy -- decides what an agent can commit. Reading the
+    working copy would pass an entry `conveyor init` appended but nobody committed,
+    which is exactly how a generated rules file reaches a commit."""
+    committed = util.git(["show", "HEAD:.gitignore"], root, check=False).splitlines()
+    for entry in GITIGNORE:
+        if entry not in committed:
+            print(f"warning: committed .gitignore lacks {entry} (add it and commit; the role "
+                  f"worktrees only see what is committed)")
+    refs = [r for r in ["HEAD", *(f"conveyor-{r.name}" for r in cfg.roles)]
+            if util.git(["ls-tree", "-r", "--name-only", r, "--", RULES_REL], root, check=False)]
+    if refs:
+        util.die(TRACKED_RULES.format(rel=RULES_REL, refs=", ".join(refs)))
+
+
 def cmd_start(args):
     root, cfg, paths = setup()
     agent = os.environ.get("CONVEYOR_AGENT_BIN", cfg.agent_bin)
@@ -547,11 +574,7 @@ def cmd_start(args):
         v = subprocess.run([agent, "--version"], capture_output=True, text=True).stdout.strip()
         if cfg.agent_version not in v:
             print(f"warning: agent version {v!r} differs from configured {cfg.agent_version!r}")
-    ignored = util.read_text(os.path.join(root, ".gitignore")).splitlines() \
-        if os.path.exists(os.path.join(root, ".gitignore")) else []
-    for entry in GITIGNORE:
-        if entry not in ignored:
-            print(f"warning: .gitignore lacks {entry}")
+    check_ignores(root, cfg)
     paths.ensure(cfg)
     presets.ensure_seeded(paths)
     install_hook(root)

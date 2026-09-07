@@ -9,17 +9,41 @@ from . import board, config, handoff, inbox, layout, util
 REQUIRED = handoff.AGENT + handoff.VALIDATOR
 
 
+UNTRACKED_MARK = "untracked working tree files would be overwritten"
+
+
+def _untracked_names(out):
+    """The indented paths git lists under its refuse-to-clobber error."""
+    names, collecting = [], False
+    for line in out.splitlines():
+        if UNTRACKED_MARK in line:
+            collecting = True
+        elif collecting:
+            if line[:1] in ("\t", " "):
+                names.append(line.strip())
+            else:
+                break
+    return names
+
+
 def merge(commit, cwd, role):
-    """Protocol §7.2. True = merged or already present; False = conflict (aborted)."""
+    """Protocol §7.2. None = merged or already present. Otherwise a
+    (park_reason, detail) pair: git refused, and *why* decides the repair, so the
+    two refusals are not collapsed into one reason. A conflict needs the operator
+    to reconcile two edits; an untracked file in the way needs it removed or
+    untracked, and nothing was merged at all."""
     env = {**os.environ, "CONVEYOR_ROLE": role}
     if util.git_ok(["merge-base", "--is-ancestor", commit, "HEAD"], cwd):
-        return True
+        return None
     r = subprocess.run(["git", "merge", "--no-edit", commit], cwd=cwd, env=env,
                        capture_output=True, text=True)
     if r.returncode == 0:
-        return True
+        return None
     subprocess.run(["git", "merge", "--abort"], cwd=cwd, capture_output=True)
-    return False
+    names = _untracked_names(r.stdout + r.stderr)
+    if names:
+        return ("untracked-collision", f"would overwrite untracked {', '.join(names)}")
+    return ("merge-conflict", "conflicted")
 
 
 def _current_branch(root):
@@ -34,10 +58,13 @@ def integrate_done(paths, cfg, src, h):
     if kind == "hold":
         return True
     if kind == "merge":
-        if merge(h["commit"], paths.root, "operator"):
+        fail = merge(h["commit"], paths.root, "operator")
+        if fail is None:
             return True
-        park(paths, src, h["task"], "merge-conflict",
-             f"merging {h['commit']} into main conflicted; resolve on main, "
+        reason, detail = fail
+        repair = "resolve on main" if reason == "merge-conflict" else "clear or untrack them on main"
+        park(paths, src, h["task"], reason,
+             f"merging {h['commit']} into main {detail}; {repair}, "
              f"then run: conveyor resume {h['task']}")
         return False
     # command: hand the reviewed commit to an operator-supplied hook (e.g. open a PR).

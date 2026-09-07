@@ -16,4 +16,7 @@ if len(sys.argv) != 2:
     print("usage: merge.sh <commit>", file=sys.stderr)
     sys.exit(2)
 role = os.environ.get("CONVEYOR_ROLE") or "operator"
-sys.exit(0 if queue.merge(sys.argv[1], os.getcwd(), role) else 1)
+fail = queue.merge(sys.argv[1], os.getcwd(), role)
+if fail:
+    print(f"{fail[0]}: {fail[1]}", file=sys.stderr)
+sys.exit(1 if fail else 0)
