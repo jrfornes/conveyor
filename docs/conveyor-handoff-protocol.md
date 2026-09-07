@@ -62,7 +62,8 @@ Every script reads identity from `CONVEYOR_ROLE` and `CONVEYOR_WORKTREE`. No scr
         reason
     logs/
       <role>/
-        <task-name>_<id>_a<attempt>.jsonl
+        <task-name>_<id>_a<attempt>.jsonl   one agent run, every line dated (§6.9)
+        loop.log                            the loop's own timeline (§6.11)
       gates/
         <role>-<task>-<commit>.txt
 ```
@@ -121,6 +122,7 @@ loop.lock/        mkdir-style lock; contains pid file
 | `<role>/inbox/completed` | `<role>`'s loop | nobody |
 | `<role>/audit_pending` | `handoff.sh` | `handoff.sh` |
 | `logs/gates/` | `handoff.sh` | nobody |
+| `logs/<role>/` | `<role>`'s loop and its stamper (§6.9) | nobody |
 | `needs-human/` | any loop | `conveyor resume` |
 | `board.tsv` | `handoff.sh`, loops, `conveyor task/resume` — under `board.lock` | — |
 | `.conveyor/inbox/<id>/` | `conveyor import` (create, or refresh/replace `source.md` on an existing id) / `conveyor intake` / `conveyor inbox attachments` | `conveyor inbox approve/skip` |
@@ -592,13 +594,24 @@ Role instructions themselves are not in the prompt; they are in `.cursor/rules/c
 
 ```
 cd $CONVEYOR_WORKTREE
-$CONVEYOR_AGENT_BIN -p --force --model <model> --output-format stream-json [<cli-args>] [--resume <session>] "<prompt>" \
-    > $CONVEYOR_ROOT/.conveyor/logs/<role>/<task>_<id>_a<attempt>.jsonl 2>&1
+$CONVEYOR_AGENT_BIN -p --force --model <model> --output-format stream-json [<cli-args>] [--resume <session>] "<prompt>" 2>&1 \
+    | role-loop.sh --stamp >> $CONVEYOR_ROOT/.conveyor/logs/<role>/<task>_<id>_a<attempt>.jsonl
 ```
 
 Before launching, the loop verifies `$CONVEYOR_AGENT_BIN` is an executable (a bare name is resolved on `PATH`; a path with a separator is taken as-is, resolving against the worktree). If it is not, the loop logs `E_NO_AGENT` and parks with reason `no-agent` — it never attempts a run it cannot start.
 
-The loop records the exit code as the last line of the log (`{"type":"conveyor","exit":<n>}`) and extracts the session id from the first event that carries one. Exit code is informational only; §6.3's outbox check decides.
+**Every line of a run log is dated.** `role-loop.sh --stamp` copies its stdin line by line and gives each line the UTC time it was read (§1 timestamp format), under the key `at`:
+
+| Input line | Written |
+|---|---|
+| a JSON object without `at` | the same object with `at` inserted **first**; no other key is touched or reordered |
+| a JSON object that already has `at` | verbatim |
+| anything else (agent stderr, a traceback) | `{"at":"<ts>","type":"output","text":"<the line>"}`, so the file stays JSONL |
+| a blank line | dropped |
+
+The stamper is its own process, not the loop: a `kill -9` of the loop leaves the agent and the stamper running, and the run still lands in the log (invariant 11).
+
+The loop dates its own records the same way. It writes `{"at":…,"type":"conveyor","event":"run","role":…,"task":…,"attempt":<n>,"model":…,"resumed":<bool>,"text":…}` before launching, records the exit code as the last line (`{"at":…,"type":"conveyor","event":"exit","exit":<n>}`), and extracts the session id from the first event that carries one. Exit code is informational only; §6.3's outbox check decides.
 
 ### 6.10 Parking
 
@@ -610,6 +623,19 @@ board: lane=needs-human, updated_at
 ```
 
 `conveyor resume <task> [--to <role>]` (default `--to` = the item's `to`, or `coder` for a coder item) renames `item.handoff` into `roles/<role>/inbox/new/` under its original filename, resets `attempt` to 1 in the header, and sets the board lane. `retry_count`, `audit_count`, and `task_id` are never reset. The operator is expected to have fixed something first (edited the task file and committed on main, or fixed the conflict); Conveyor does not check.
+
+### 6.11 The loop log
+
+Everything a loop prints — the lines below, plus §6.5 delivery failures and §6.10 parks — is prefixed with a UTC timestamp and two spaces, and `conveyor start` appends it to `.conveyor/logs/<role>/loop.log`. Per item, the loop prints:
+
+```
+<ts>  <task>: processing <id> from <from> (<verdict>, <commit>)
+<ts>  <task>: attempt <n> running <model>[ (resume)]
+<ts>  <task>: attempt <n> agent exited <rc>
+<ts>  <task>: merged | forwarded
+```
+
+The loop log is a convenience for the operator, never an input: no script reads it back.
 
 ---
 
@@ -734,7 +760,7 @@ These are the properties tests assert. Each is stated so that violating it is de
 | `conveyor uninstall [--yes] [--bundle]` | Stop live loops if needed; remove worktrees, local `conveyor-*` branches, `.conveyor/`, and the byline hook when it matches the shipped copy. `--bundle` also removes init files (`constitution/`, `roles/`, `conveyor.conf`, `tasks/`, etc.). Refused in the conveyor source checkout. `--yes` required. |
 | `conveyor task <name> [< text]` | Validate name; write and commit `tasks/<name>.md` on main (`By operator.`); append board row (lane `coder`, counters 0); write an operator handoff `to: coder`, `verdict: ready`, `commit` = main HEAD, into `roles/operator/outbox/`; run the operator delivery sweep (§6.5) immediately. |
 | `conveyor status` | Print §2.3 state for each role, `needs-human/` with reasons, and `board.tsv`. Pure read. |
-| `conveyor log <role> [<task>]` | Pretty-print the newest matching `.jsonl`. Pure read. |
+| `conveyor log <role> [<task>]` | Pretty-print the newest matching `.jsonl`: a header naming the file and the run's first timestamp, then one line per event as `<HH:MM:SS UTC> [<type>] <detail>` (blank clock column for a line with no `at`; a wrapped detail is indented into the same column). Pure read. |
 | `conveyor resume <task> [--to <role>]` | §6.10. Refused when the task is parked but has no board row, before anything is renamed. |
 | `conveyor import --source manual\|jira [--title ...]` | Read the ticket body from stdin (Jira: fetch each key found in it, §2.4 adapters). Create `.conveyor/inbox/<id>/` by renaming `.tmp-<id>/` into place, `status: imported`. Never writes `tasks/`. A per-key fetch failure prints `failed <KEY>  <status> <reason>` and creates no item. |
 | `conveyor import --refresh <id>` / `--replace <id>` | Rewrite `source.md` of an existing item in place — `--refresh` re-fetches from the host (Jira items only, requires `external_id`; refreshes the attachment list, keeps selection by id), `--replace` takes the body on stdin (Conveyor rewrites the attachments footer). Both refused unless `status` is `imported`. |

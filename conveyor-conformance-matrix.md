@@ -107,7 +107,9 @@ the "Decisions" section at the end.
 - [x] **full** — File-backed board a human can `cat` → `board.tsv` (§8.1); `conveyor status` prints queue state from `ls` (`OBS-1`).
 - [x] **full** — Role byline in every commit; `--no-verify` forbidden → commit-msg hook (`HND-10`, §7.4), `E_NO_BYLINE`, `inv 10`.
 - [~] **simplified** — Read-only dashboard first, controls second → substituted by `conveyor status`/`log` + `tail -f`; full dashboard is **B.6** (its "read-only first" constraint means it builds over these files with no protocol change).
-- [~] **simplified** — Per-run logs → one stream-json log per run (`OBS-2`, §6.9); `conveyor log` pretty-prints.
+- [~] **simplified** — Per-run logs → one stream-json log per run (`OBS-2`, §6.9), every line dated with the time
+  Conveyor read it; `conveyor log` pretty-prints with a UTC clock column, and `loop.log` gives the loop's own
+  dated timeline (§6.11).
 
 ## 9. Durability & cost control (manual Part 9)
 

@@ -84,6 +84,9 @@ function renderTask(text: string): MdBlock[] {
           } @else if (logFile) {
             <div class="log-meta">
               {{ logRole }} · {{ logFile }}
+              @if (logStarted(); as started) {
+                <span> · {{ started }}</span>
+              }
               @if (peek; as p) {
                 <span class="peek"> · {{ p }}</span>
               }
@@ -240,9 +243,19 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked {
     el.scrollTop = el.scrollHeight;
   }
 
+  /** Date of the first dated line, so the clock column below has a day. */
+  logStarted(): string {
+    return this.logEvents.find((e) => e.at?.length === 20)?.at ?? '';
+  }
+
   formatLog(): string {
     return this.logEvents
-      .map((e) => (e.detail ? `[${e.type}] ${e.detail}` : e.text ?? `[${e.type}]`))
+      .map((e) => {
+        // UTC clock, same as `conveyor log`; blank column for logs written before dating.
+        const clock = (e.at?.length === 20 ? e.at.slice(11, 19) : '').padEnd(9);
+        const text = e.detail ? `[${e.type}] ${e.detail}` : e.text ?? `[${e.type}]`;
+        return clock + text.replace(/\n/g, '\n' + ' '.repeat(9));
+      })
       .join('\n');
   }
 }

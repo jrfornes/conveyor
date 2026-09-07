@@ -23,6 +23,54 @@ SESSION_RE = re.compile(r'"session_?[iI]d"\s*:\s*"([^"]+)"')
 VALIDATOR_RE = re.compile(r'(?:E_[A-Z_]+|AUDIT_REQUIRED): [^"\\\n]*')
 
 
+def stamped(line):
+    """One run-log line with the time it was read as its first key (protocol §6.9).
+
+    A JSON object gains `at` (never overwriting one the agent supplied); anything
+    else -- agent stderr, a stray traceback -- is wrapped so the file stays JSONL.
+    `at` goes first so the rest of the object keeps the agent's key order."""
+    raw = line.rstrip("\n")
+    try:
+        ev = json.loads(raw)
+        if not isinstance(ev, dict):
+            raise ValueError
+    except ValueError:
+        return json.dumps({"at": util.now(), "type": "output", "text": raw}) + "\n"
+    if "at" in ev:
+        return raw + "\n"
+    return json.dumps({"at": util.now(), **ev}) + "\n"
+
+
+def stamp_stream(src, dst):
+    """`--stamp`: copy stdin to stdout, dating each line. Own process so the agent's
+    output survives the loop; readline (not iteration) so `tail -f` stays live."""
+    for line in iter(src.readline, ""):
+        if line.strip():
+            dst.write(stamped(line))
+            dst.flush()
+
+
+class DatedStdout:
+    """stdout wrapper prefixing every line with a UTC timestamp, so
+    .conveyor/logs/<role>/loop.log reads as a timeline (protocol §6.11)."""
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.fresh = True
+
+    def write(self, s):
+        for part in s.splitlines(keepends=True):
+            if self.fresh:
+                self.stream.write(f"{util.now()}  ")
+            self.stream.write(part)
+            self.fresh = part.endswith("\n")
+        self.stream.flush()
+        return len(s)
+
+    def flush(self):
+        self.stream.flush()
+
+
 class Loop:
     def __init__(self, once):
         self.once = once
@@ -107,6 +155,7 @@ class Loop:
         if "dequeued_at" not in h:
             h = handoff.stamp(path, dequeued_at=util.now(), attempt=1)
         task = h["task"]
+        print(f"{task}: processing {h['id']} from {h['from']} ({h['verdict']}, {h['commit']})", flush=True)
         park = lambda reason, detail: queue.park(self.paths, path, task, reason, detail)  # noqa: E731
         fail = queue.merge(h["commit"], self.wt, self.role)
         if fail:
@@ -141,6 +190,7 @@ class Loop:
                     self.rp.outbox, layout.handoffs(self.rp.outbox)[0]))[0]["to"] == "done" else "forwarded"
                 handoff.stamp(path, completed_at=util.now(), outcome=outcome)
                 util.crash_point("after-complete-stamp")
+                print(f"{task}: {outcome}", flush=True)
                 handoff.move(path, self.rp.completed)
                 util.crash_point("after-complete")
                 return
@@ -244,19 +294,36 @@ class Loop:
         if session:
             cmd += ["--resume", session]
         cmd.append(prompt)
+        print(f"{task}: attempt {attempt} running {self.me.model}"
+              f"{' (resume)' if session else ''}", flush=True)
         with open(log, "a", encoding="utf-8") as lf:
+            lf.write(stamped(json.dumps(
+                {"type": "conveyor", "event": "run", "role": self.role, "task": task,
+                 "attempt": attempt, "model": self.me.model, "resumed": bool(session),
+                 "text": f"attempt {attempt}, model {self.me.model}"
+                         f"{', resumed session' if session else ''}"})))
+            lf.flush()
             try:
-                self.agent = subprocess.Popen(cmd, cwd=self.wt, stdout=lf, stderr=subprocess.STDOUT)
+                self.agent = subprocess.Popen(cmd, cwd=self.wt, stdout=subprocess.PIPE,
+                                              stderr=subprocess.STDOUT)
             except OSError as e:
                 # Binary vanished or lost +x since the pre-flight check: degrade to a
                 # failed attempt (max-attempts will park) rather than crash the loop.
                 self.agent = None
                 msg = f"E_NO_AGENT: cannot launch {cmd[0]!r}: {e}"
-                lf.write(json.dumps({"type": "conveyor", "error": msg}) + "\n")
+                lf.write(stamped(json.dumps({"type": "conveyor", "error": msg})))
                 return session, msg
+            # The stamper, not the loop, sits between the agent and the log: kill -9 of
+            # the loop leaves agent and stamper running and the run still lands dated
+            # in the file, exactly as the plain redirect used to (invariant 11).
+            stamper = subprocess.Popen([sys.executable, os.path.join(BIN, "role-loop.sh"), "--stamp"],
+                                       stdin=self.agent.stdout, stdout=lf, stderr=subprocess.DEVNULL)
+            self.agent.stdout.close()  # the stamper owns the read end; it needs the EOF
             rc = self.agent.wait()
             self.agent = None
-            lf.write(json.dumps({"type": "conveyor", "exit": rc}) + "\n")
+            stamper.wait()  # every agent line is in the file before the exit record
+            lf.write(stamped(json.dumps({"type": "conveyor", "event": "exit", "exit": rc})))
+        print(f"{task}: attempt {attempt} agent exited {rc}", flush=True)
         text = util.read_text(log)
         m = SESSION_RE.search(text)
         errs = VALIDATOR_RE.findall(text)
@@ -264,6 +331,12 @@ class Loop:
 
 
 def main():
+    if "--stamp" in sys.argv:
+        # Agent output is not always clean UTF-8, and the log must not die over a byte.
+        sys.stdin.reconfigure(errors="replace")
+        sys.stdout.reconfigure(errors="replace")
+        return stamp_stream(sys.stdin, sys.stdout)
+    sys.stdout = DatedStdout(sys.stdout)
     loop = Loop("--once" in sys.argv)
     loop.acquire()
     signal.signal(signal.SIGTERM, loop.on_term)

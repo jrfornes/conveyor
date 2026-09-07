@@ -44,7 +44,8 @@ cursor-agent --list-models
 |---|---|
 | Give the pipeline work | `conveyor task <name>` then type or pipe the task text (`conveyor task add-login < spec.md`) |
 | See where everything is | `conveyor status` |
-| Watch an agent | `conveyor log coder` (or `tail -f .conveyor/logs/coder/*.jsonl`) |
+| Watch an agent | `conveyor log coder` — dated, §6.1 (or `tail -f .conveyor/logs/coder/*.jsonl`) |
+| See what a loop did and when | `tail -f .conveyor/logs/coder/loop.log` — one dated line per item, attempt, and outcome |
 | See what a role produced | `git log conveyor-<role>` — every commit ends `By <role>.` |
 | Read a finished task | it's merged on `main`; `git log main` |
 | Unstick a parked task | read `.conveyor/needs-human/<task>/reason`, fix the cause, `conveyor resume <task>` |
@@ -107,6 +108,27 @@ intake sees exactly the first three sections. Items already past your decision (
 - `-` — not graded yet
 
 High `audit` with low `retry` means the coder is being challenged and fixing things itself: healthy. High `retry` means coder and reviewer disagree: read the findings in `git log conveyor-reviewer` and probably sharpen the task file.
+
+### 6.1 Reading `conveyor log`
+
+```
+== add-login_operator-000001_a1.jsonl  2026-09-03T14:15:02Z
+14:15:02 [conveyor] run attempt 1, model composer-2.5
+14:15:04 [tool] git commit 0
+14:16:31 [tool] handoff.sh AUDIT_REQUIRED: handoff for add-login not queued (audit 1)
+           Before resubmitting, re-read tasks/add-login.md and your role file.
+14:18:07 [tool] handoff.sh OK: coder-000001 queued for reviewer
+          0
+14:18:07 [conveyor] exit 0
+```
+
+The header names the log file and when the run started; each line is dated with the UTC clock —
+same timezone as `board.tsv` and every handoff header — so gaps show you where an agent spent its
+time. A wrapped line continues in the clock's own column. Lines from before Conveyor dated its logs
+show a blank clock instead.
+
+`loop.log` in the same directory is the loop's own timeline (item picked up, attempt started, agent
+exit code, `forwarded`/`merged`, parks), one dated line each.
 
 ## 7. Recovery
 

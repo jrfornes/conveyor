@@ -48,7 +48,7 @@ alone is sufficient. There is no tmux, no daemon beyond one loop process per rol
 | `conveyor task <name>` | Create `tasks/<name>.md`, enqueue to the first configured role |
 | `conveyor task --delete <name>` | Remove a done or needs-human task |
 | `conveyor status` | Print queue state and `board.tsv` (runbook §6 format) |
-| `conveyor log <role> [<task>]` | Pretty-print the agent run log |
+| `conveyor log <role> [<task>]` | Pretty-print the agent run log, dated (UTC clock per line) |
 | `conveyor resume <task>` | Move a parked task back into a role's inbox |
 
 **Environment identity** (set by loops, never by the agent):
@@ -372,7 +372,8 @@ The reviewer exists because the agent that claims "done" must never be the agent
 The MVP has no required web UI. Supervision is file-backed:
 
 - `conveyor status` — per-role queue state, board rows, audit/retry counts (runbook §6).
-- `conveyor log <role>` — pretty-print stream-json agent logs.
+- `conveyor log <role>` — pretty-print stream-json agent logs; every line is dated (protocol §6.9).
+- `tail -f .conveyor/logs/<role>/loop.log` — the loop's own dated timeline (protocol §6.11).
 - `cat .conveyor/board.tsv` — raw board.
 - `ls .conveyor/roles/<role>/inbox/new/` — pending work.
 - `git log conveyor-<role>` — every commit ends `By <role>.`

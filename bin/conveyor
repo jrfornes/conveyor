@@ -715,6 +715,11 @@ def _print_inbox_block(paths):
         print(f"  ({tail})")
 
 
+# Keys worth showing per event, in reading order; `event`/`error` are conveyor's own.
+LOG_DETAIL_KEYS = ("event", "subtype", "name", "command", "text", "output",
+                   "result", "error", "exit")
+
+
 def cmd_log(args):
     _, cfg, paths = setup()
     if not args or args[0] not in cfg.names():
@@ -725,18 +730,24 @@ def cmd_log(args):
                   if f.endswith(".jsonl") and f.startswith(prefix)) if os.path.isdir(d) else []
     if not logs:
         util.die("no log found")
-    print(f"== {logs[-1][1]}")
+    rows = []
     for line in util.read_text(os.path.join(d, logs[-1][1])).splitlines():
         try:
             ev = json.loads(line)
         except ValueError:
-            print(line)
+            rows.append(("", None, line))
             continue
         kind = ev.get("type", "?")
-        detail = " ".join(str(ev[k]) for k in ("subtype", "name", "command", "text", "output", "result", "exit")
-                          if k in ev and ev[k] not in ("", None))
+        detail = " ".join(str(ev[k]) for k in LOG_DETAIL_KEYS if k in ev and ev[k] not in ("", None))
         if kind in ("assistant", "result", "tool", "tool_call", "tool_result", "conveyor") or detail:
-            print(f"[{kind}] {detail[:400]}")
+            rows.append((str(ev.get("at", "")), kind, detail[:400]))
+    started = next((at for at, _, _ in rows if at), "")
+    print(f"== {logs[-1][1]}{'  ' + started if started else ''}")
+    for at, kind, detail in rows:
+        # Times are UTC, as everywhere else in conveyor; the header carries the date.
+        clock = f"{at[11:19]:<9}" if len(at) == 20 else " " * 9
+        text = detail if kind is None else f"[{kind}] {detail}"
+        print(clock + text.replace("\n", "\n" + " " * 9))  # wrapped output stays in its column
 
 
 def cmd_resume(args):
