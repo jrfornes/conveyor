@@ -108,11 +108,11 @@ export interface WorkflowEditData {
     mat-dialog-content { min-width: 680px; max-width: 720px; }
     .full { width: 100%; }
     h4 {
-      margin: 12px 0 6px; font-size: 12px; text-transform: uppercase;
+      margin: 8px 0 4px; font-size: 12px; text-transform: uppercase;
       letter-spacing: 0.08em; color: rgba(0,0,0,0.55);
     }
-    .chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .chips.add { margin-top: 8px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .chips.add { margin-top: 6px; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px;
       border: 1px solid rgba(0,0,0,0.2); border-radius: 4px; padding: 2px 6px;

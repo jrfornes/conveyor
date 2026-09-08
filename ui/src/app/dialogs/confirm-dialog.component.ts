@@ -55,9 +55,9 @@ export interface ConfirmData {
     </mat-dialog-actions>
   `,
   styles: `
-    p { margin: 0 0 12px; font-size: 14px; }
+    p { margin: 0 0 8px; font-size: 14px; }
     .items {
-      margin: 0 0 12px;
+      margin: 0 0 8px;
       padding-left: 18px;
       font-size: 13px;
     }
@@ -66,7 +66,7 @@ export interface ConfirmData {
       font-size: 12px;
       white-space: pre-wrap;
       background: #f5f5f5;
-      padding: 8px;
+      padding: 6px 8px;
       margin: 0;
       border-radius: 4px;
     }

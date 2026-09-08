@@ -103,7 +103,7 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
     @media (max-width: 960px) {
       .inbox-layout.with-rail { grid-template-columns: 1fr; }
     }
-    .inbox-pane { min-height: 0; overflow: auto; padding: 12px 16px; }
+    .inbox-pane { min-height: 0; overflow: auto; padding: 8px 12px; }
     .board-layout {
       flex: 1;
       display: flex;

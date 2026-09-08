@@ -53,7 +53,7 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
     .error-strip {
       background: #ffebee;
       color: #b71c1c;
-      padding: 6px 16px;
+      padding: 4px 12px;
       font-size: 13px;
       border-bottom: 1px solid #ef9a9a;
     }

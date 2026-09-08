@@ -54,14 +54,14 @@ import { ApprovalItem, InboxItem, NeedsHumanEntry } from '../models';
     .strip {
       background: #fff3e0;
       border-bottom: 1px solid #ffcc80;
-      padding: 8px 16px;
+      padding: 6px 12px;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 12px;
-      font-size: 14px;
+      gap: 8px;
+      font-size: 13px;
     }
-    .item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .item { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .reason { font-family: monospace; color: #e65100; }
     .detail { color: #5d4037; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   `,

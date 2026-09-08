@@ -78,7 +78,7 @@ export interface ImportSummaryDialogData extends ImportSummary {
       padding-top: 4px;
     }
     section {
-      margin-bottom: 16px;
+      margin-bottom: 12px;
     }
     section:last-child {
       margin-bottom: 0;
@@ -100,9 +100,9 @@ export interface ImportSummaryDialogData extends ImportSummary {
     .result-list li {
       display: grid;
       grid-template-columns: minmax(96px, 140px) minmax(0, 1fr);
-      gap: 12px;
+      gap: 10px;
       align-items: start;
-      padding: 8px 0;
+      padding: 6px 0;
       border-bottom: 1px solid rgba(0, 0, 0, 0.08);
       font-size: 14px;
     }
@@ -133,7 +133,7 @@ export interface ImportSummaryDialogData extends ImportSummary {
     .notice-list li {
       font-size: 13px;
       line-height: 1.45;
-      padding: 6px 0;
+      padding: 4px 0;
       border-bottom: 1px solid rgba(0, 0, 0, 0.06);
     }
     .notice-list li:last-child {

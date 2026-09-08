@@ -114,32 +114,32 @@ import { SkillInfo } from '../models';
   `,
   styles: `
     :host { display: flex; flex-direction: column; min-height: 0; }
-    .pane { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; min-height: 280px; }
+    .pane { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; min-height: 240px; }
     .md {
-      width: 100%; min-height: 280px; flex: 1;
+      width: 100%; min-height: 240px; flex: 1;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 13px; line-height: 1.45;
-      border: 1px solid rgba(0,0,0,0.16); border-radius: 6px; padding: 10px;
+      border: 1px solid rgba(0,0,0,0.16); border-radius: 6px; padding: 8px;
       resize: vertical; box-sizing: border-box;
     }
-    .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .hint { font-size: 12px; color: rgba(0,0,0,0.6); margin: 0; }
-    .skills { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+    .skills { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
     .skills h4 {
       margin: 0; font-size: 12px; text-transform: uppercase;
       letter-spacing: 0.04em; color: rgba(0,0,0,0.55);
     }
     .desc { font-size: 11px; opacity: 0.7; }
     mat-chip { cursor: pointer; }
-    .gates { margin-top: 8px; }
+    .gates { margin-top: 6px; }
     .gates h4 {
       margin: 0 0 6px; font-size: 12px; text-transform: uppercase;
       letter-spacing: 0.04em; color: rgba(0,0,0,0.55);
     }
-    .gates ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
-    .gates li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+    .gates ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+    .gates li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
     .gates .argv { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: rgba(0,0,0,0.65); }
-    .constitution { margin-top: 12px; font-size: 13px; }
+    .constitution { margin-top: 8px; font-size: 13px; }
     .constitution h4 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: rgba(0,0,0,0.55); }
     .constitution ul { margin: 0; padding-left: 18px; }
   `,

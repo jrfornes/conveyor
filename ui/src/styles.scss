@@ -1,5 +1,40 @@
+@use '@angular/material' as mat;
+
 html, body { height: 100%; margin: 0; }
 body { font-family: Roboto, "Helvetica Neue", sans-serif; }
+
+// The prebuilt azure-blue theme ships at density 0, which is sized for touch.
+// The cockpit is a desk tool that wants many board cards, table rows and role
+// fields on screen at once, so pull the whole component set two density steps
+// down. Component paddings the density scale does not reach are trimmed below.
+$conveyor-density: mat.define-theme((
+  density: (scale: -2),
+));
+
+html {
+  @include mat.all-component-densities($conveyor-density);
+}
+
+// Cards carry a 16px surround plus a 52px actions bar; the board packs them in
+// a narrow column, so give them a tighter one.
+.mat-mdc-card-header { padding: 10px 12px 0; }
+.mat-mdc-card-content { padding: 0 12px; }
+.mat-mdc-card-content:first-child { padding-top: 10px; }
+.mat-mdc-card-content:last-child { padding-bottom: 10px; }
+.mat-mdc-card-actions { min-height: 36px; padding: 4px 6px; }
+
+// Table cells default to 16px either side.
+.mat-mdc-header-cell, .mat-mdc-cell { padding: 0 10px; }
+.mat-mdc-header-cell:first-of-type, .mat-mdc-cell:first-of-type { padding-left: 12px; }
+.mat-mdc-header-cell:last-of-type, .mat-mdc-cell:last-of-type { padding-right: 12px; }
+
+// Dialog surround (24px by default).
+.mat-mdc-dialog-container {
+  --mat-dialog-headline-padding: 16px 20px 8px;
+  --mat-dialog-content-padding: 8px 20px 16px;
+  --mat-dialog-with-actions-content-padding: 8px 20px;
+  --mat-dialog-actions-padding: 8px 16px 12px;
+}
 
 .intake-review-dialog .mat-mdc-dialog-container,
 .task-detail-dialog .mat-mdc-dialog-container {

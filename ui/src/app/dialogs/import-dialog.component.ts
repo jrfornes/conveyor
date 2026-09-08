@@ -51,7 +51,7 @@ import { MatTabsModule } from '@angular/material/tabs';
   `,
   styles: `
     .full { width: 100%; min-width: 420px; }
-    .tab-body { padding-top: 12px; }
+    .tab-body { padding-top: 8px; }
     .hint { font-size: 12px; opacity: 0.7; margin: 0 0 8px; }
   `,
 })

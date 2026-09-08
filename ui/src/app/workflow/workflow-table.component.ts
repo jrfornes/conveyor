@@ -75,7 +75,7 @@ import { WorkflowPreset } from '../models';
     .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
     .dot.live { background: #2e7d4f; }
     .dot.mod { background: #d6a633; }
-    .empty { padding: 48px; text-align: center; opacity: 0.85; }
+    .empty { padding: 28px; text-align: center; opacity: 0.85; }
   `,
 })
 export class WorkflowTableComponent {

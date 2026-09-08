@@ -61,26 +61,26 @@ import { ConveyorTask, RoleAvatar } from '../models';
     }
     .board {
       display: flex;
-      gap: 12px;
+      gap: 8px;
       height: 100%;
       overflow-x: auto;
-      padding: 12px 16px;
+      padding: 8px 12px;
       box-sizing: border-box;
       background: var(--mat-sys-surface, #faf9fd);
     }
     .column {
-      flex: 1 1 200px;
-      min-width: 196px;
+      flex: 1 1 184px;
+      min-width: 180px;
       display: flex;
       flex-direction: column;
       min-height: 0;
-      padding: 8px;
-      border-radius: 12px;
+      padding: 6px;
+      border-radius: 10px;
       background: var(--mat-sys-surface-container, rgba(0, 0, 0, 0.04));
     }
     h3 {
-      margin: 0 0 8px;
-      font-size: 13px;
+      margin: 0 0 6px;
+      font-size: 12px;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
@@ -99,20 +99,20 @@ import { ConveyorTask, RoleAvatar } from '../models';
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       border-radius: 50%;
       color: #fff;
       flex: none;
-      mat-icon { font-size: 14px; width: 14px; height: 14px; }
+      mat-icon { font-size: 13px; width: 13px; height: 13px; }
     }
     .cards {
       flex: 1;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      min-height: 64px;
+      gap: 6px;
+      min-height: 44px;
     }
     .card {
       cursor: pointer;
@@ -120,7 +120,7 @@ import { ConveyorTask, RoleAvatar } from '../models';
     }
     .retry { font-size: 12px; color: #c62828; margin-left: 8px; }
     .audit { font-size: 12px; color: #1565c0; }
-    .task-id { font-size: 11px; font-family: monospace; opacity: 0.7; margin-top: 4px; }
+    .task-id { font-size: 11px; font-family: monospace; opacity: 0.7; margin-top: 2px; }
   `,
 })
 export class KanbanBoardComponent {

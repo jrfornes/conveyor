@@ -105,8 +105,8 @@ import { AgentModel, RoleRecord } from '../models';
   styles: `
     .cards {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 8px;
     }
     .card { cursor: pointer; }
     .card.library {
@@ -115,7 +115,7 @@ import { AgentModel, RoleRecord } from '../models';
       background: transparent;
     }
     .not-in { font-size: 12px; opacity: 0.6; margin: 0 0 8px; }
-    .hops { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .hops { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
     .hop {
       display: inline-flex; align-items: center; gap: 4px;
       font-size: 11px; padding: 2px 8px; border-radius: 10px;
@@ -133,9 +133,9 @@ import { AgentModel, RoleRecord } from '../models';
       display: flex; align-items: center; justify-content: center; color: #fff;
       mat-icon { font-size: 20px; width: 20px; height: 20px; }
     }
-    .owns { font-size: 13px; color: rgba(0,0,0,0.65); margin: 8px 0 12px; }
-    .runtime { display: flex; flex-direction: column; gap: 8px; }
-    .ceilings { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .owns { font-size: 13px; color: rgba(0,0,0,0.65); margin: 6px 0 8px; }
+    .runtime { display: flex; flex-direction: column; gap: 6px; }
+    .ceilings { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
     mat-form-field { width: 100%; }
     .mid { font-family: ui-monospace, monospace; }
     .mlabel { margin-left: 8px; opacity: 0.65; font-size: 12px; }

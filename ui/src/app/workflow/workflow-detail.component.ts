@@ -129,11 +129,11 @@ import {
   `,
   styles: `
     :host { display: block; height: 100%; overflow: auto; background: #f7f8fa; }
-    .page { padding: 16px 20px 32px; display: flex; flex-direction: column; gap: 12px; }
-    .err { padding: 10px 14px; border-radius: 8px; font-size: 13px;
+    .page { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 8px; }
+    .err { padding: 8px 12px; border-radius: 8px; font-size: 13px;
            background: #ffebee; color: #b71c1c; }
     .crumb { align-self: flex-start; padding: 0; min-width: 0; }
-    .head { display: flex; align-items: center; gap: 10px; }
+    .head { display: flex; align-items: center; gap: 8px; }
     .head h2 { margin: 0; font-size: 20px; font-weight: 500; }
     .actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
     .pill {
@@ -145,7 +145,7 @@ import {
     .meta { margin: 0; font-size: 12px; color: rgba(0,0,0,0.55); }
     .muted { color: rgba(0,0,0,0.55); font-size: 12px; }
     h3 {
-      margin: 0 0 8px; font-size: 13px; text-transform: uppercase;
+      margin: 0 0 6px; font-size: 13px; text-transform: uppercase;
       letter-spacing: 0.06em; color: rgba(0,0,0,0.55);
     }
     .caption { font-size: 12px; color: rgba(0,0,0,0.6); margin: 8px 0 0; }
@@ -153,10 +153,10 @@ import {
     table.roles { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
     table.roles th {
       text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-      color: rgba(0,0,0,0.55); font-weight: 500; padding: 8px 10px;
+      color: rgba(0,0,0,0.55); font-weight: 500; padding: 5px 10px;
       border-bottom: 1px solid rgba(0,0,0,0.12);
     }
-    table.roles td { padding: 8px 10px; border-bottom: 1px solid rgba(0,0,0,0.06); }
+    table.roles td { padding: 5px 10px; border-bottom: 1px solid rgba(0,0,0,0.06); }
     .mono { font-family: 'Roboto Mono', ui-monospace, monospace; }
     .rolelink { padding: 0; min-width: 0; }
   `,

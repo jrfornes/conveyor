@@ -56,28 +56,28 @@ interface BeltNode {
       align-items: center;
       gap: 4px;
       overflow-x: auto;
-      padding: 8px 0;
+      padding: 6px 0;
     }
     .node {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       border: 2px solid transparent;
       background: #fff;
       border-radius: 10px;
-      padding: 8px 12px;
+      padding: 6px 10px;
       cursor: pointer;
       font: inherit;
-      min-width: 88px;
+      min-width: 80px;
     }
     .node.mark { cursor: default; opacity: 0.85; }
     .node.selected { border-color: var(--mat-sys-primary, #1976d2); }
     .avatar {
-      width: 36px; height: 36px; border-radius: 50%;
+      width: 30px; height: 30px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       color: #fff;
-      mat-icon { font-size: 20px; width: 20px; height: 20px; }
+      mat-icon { font-size: 18px; width: 18px; height: 18px; }
     }
     .label { font-size: 12px; font-weight: 500; }
     .hint { display: block; font-size: 11px; opacity: 0.65; }

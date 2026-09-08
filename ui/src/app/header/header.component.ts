@@ -47,15 +47,15 @@ import { WorkflowRef } from '../models';
     </mat-toolbar>
   `,
   styles: `
-    .header { gap: 8px; min-height: 56px; }
+    .header { gap: 6px; }
     .title { font-weight: 600; letter-spacing: 0.02em; }
     .sep, .repo { opacity: 0.85; }
-    .workflow { font-size: 12px; opacity: 0.8; margin-left: 8px; }
+    .workflow { font-size: 12px; opacity: 0.8; margin-left: 6px; }
     .spacer { flex: 1; }
-    .running-label { font-size: 13px; margin-right: 12px; opacity: 0.9; }
-    .view-toggle { margin-left: 16px; }
+    .running-label { font-size: 13px; margin-right: 8px; opacity: 0.9; }
+    .view-toggle { margin-left: 12px; }
     .live-dot {
-      width: 10px; height: 10px; border-radius: 50%; margin-left: 8px;
+      width: 8px; height: 8px; border-radius: 50%; margin-left: 6px;
       &.live { background: #2e7d32; box-shadow: 0 0 6px #2e7d32; }
       &.dead { background: #9e9e9e; }
     }

@@ -40,7 +40,7 @@ export interface SpecApproveResult {
   `,
   styles: `
     .full { width: 100%; min-width: 480px; }
-    .mono { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; max-height: 360px; overflow: auto; background: #f5f5f5; padding: 8px; }
+    .mono { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; max-height: 360px; overflow: auto; background: #f5f5f5; padding: 6px 8px; }
   `,
 })
 export class SpecApproveDialogComponent {
