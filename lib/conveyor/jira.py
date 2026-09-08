@@ -8,7 +8,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from . import util
 
@@ -59,9 +59,31 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
 
 
+_REDIRECTS = (301, 302, 303, 307, 308)
+
+
 def _same_origin(a, b):
     pa, pb = urlsplit(a), urlsplit(b)
     return (pa.scheme, pa.netloc) == (pb.scheme, pb.netloc)
+
+
+def _prefer_origin_bytes(url):
+    """Ask Jira Cloud to stream attachment bytes on-origin.
+
+    `GET /rest/api/3/attachment/content/{id}` answers 303 to
+    api.media.atlassian.com unless `redirect=false`. That query is the
+    documented way to avoid the cross-host hop; we still follow one CDN
+    redirect if the origin redirects anyway.
+    """
+    parts = urlsplit(url)
+    if "/attachment/content/" not in (parts.path or ""):
+        return url
+    q = parse_qsl(parts.query, keep_blank_values=True)
+    if any(k == "redirect" for k, _ in q):
+        return url
+    q.append(("redirect", "false"))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path,
+                       urlencode(q), parts.fragment))
 
 
 def _stream_to(resp, dest, max_bytes):
@@ -96,13 +118,15 @@ def _stream_to(resp, dest, max_bytes):
 def download_content(url, dest, headers, max_bytes, timeout=15):
     """Stream url to dest via dest.tmp + rename.
 
-    First hop is authenticated on the Jira origin. A single cross-host 302
-    (Cloud CDN) is followed without Authorization. Any other redirect or
-    off-site hop fails closed. Does not use urlopen (which never follows
-    cross-host).
+    First hop is authenticated on the Jira origin. Attachment content URLs
+    get `redirect=false` so Cloud streams bytes on-origin (the default is
+    303 See Other to the media host). A single cross-host 3xx is still
+    followed without Authorization if the origin redirects anyway. Any
+    further off-site hop fails closed. Does not use urlopen (which never
+    follows cross-host).
     """
     opener = urllib.request.build_opener(_NoRedirectHandler())
-    current = url
+    current = _prefer_origin_bytes(url)
     hdrs = dict(headers or {})
     cdn_used = False
     hops = 0
@@ -121,7 +145,7 @@ def download_content(url, dest, headers, max_bytes, timeout=15):
                 _stream_to(resp, dest, max_bytes)
                 return
         except urllib.error.HTTPError as e:
-            if e.code not in (301, 302, 303, 307, 308):
+            if e.code not in _REDIRECTS:
                 raise
             loc = e.headers.get("Location") if e.headers else None
             if not loc:
@@ -134,7 +158,7 @@ def download_content(url, dest, headers, max_bytes, timeout=15):
                         current, e.code, "refusing further redirect", e.headers, None)
                 current = nxt
                 continue
-            if e.code != 302 or cdn_used:
+            if cdn_used:
                 raise urllib.error.HTTPError(
                     current, e.code, "refusing cross-host redirect", e.headers, None)
             cdn_used = True

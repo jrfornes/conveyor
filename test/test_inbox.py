@@ -767,6 +767,8 @@ class InboxAttachments(ConveyorTest):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         blob = os.path.join(fx.paths.inbox, "proj-9", "attachments", "10001-repro.png")
         self.assertTrue(os.path.isfile(blob))
+        self.assertTrue(any("redirect=false" in (c.get("path") or "")
+                            for c in server.captured))
         with open(blob, "rb") as f:
             self.assertEqual(f.read(), PNG12)
         wt_blob = os.path.join(fx.paths.worktree(config.INTAKE_ROLE),

@@ -80,6 +80,7 @@
 
 **Fixes**
 
+- **Fixed: Grade failed on Jira Cloud attachments with `303 refusing cross-host redirect`.** Cloud's `GET /attachment/content/{id}` answers 303 to `api.media.atlassian.com` (documented success, not an error). Download asked only for a 302 CDN hop, so Import-and-grade stopped after the first ticket that had a selected image. Intake now sends `redirect=false` so the bytes stay on the Jira origin, and still follows a single cross-host 3xx without Authorization if the origin redirects anyway.
 - **Fixed: `conveyor start` warned that the committed `.gitignore` lacked runtime paths and then started anyway.** Role worktrees only see `HEAD:.gitignore`, so skipping the commit after `init` let generated `.cursor/rules/conveyor-role.mdc` reach a handoff (`untracked-collision`). Start now appends any missing entries and commits `.gitignore` (and the same on an existing idle role branch) before creating worktrees.
 - Approving an inbox item in a repo with no git identity failed mid-command: the task file was already written and staged, the cockpit showed a raw `CalledProcessError` traceback, and the next click died with `tasks/<task>.md already exists`. `conveyor task`, `conveyor inbox approve`, and `conveyor start` now check `git var GIT_COMMITTER_IDENT` first and print the `git config user.name/user.email` repair; a failed commit unstages (and, for approve, deletes) what it wrote; and an uncommitted `tasks/<task>.md` identical to the text being approved is adopted instead of refused.
 
