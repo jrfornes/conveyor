@@ -147,10 +147,10 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
   `,
   styles: `
     :host { display: block; min-width: 0; border-left: 1px solid rgba(0,0,0,0.08); background: #fafafa; }
-    .rail { display: flex; flex-direction: column; gap: 12px; padding: 16px; min-height: 0; }
-    .head { display: flex; gap: 12px; align-items: flex-start; }
+    .rail { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-height: 0; }
+    .head { display: flex; gap: 10px; align-items: flex-start; }
     .avatar {
-      width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+      width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center; color: #fff;
       mat-icon { font-size: 20px; width: 20px; height: 20px; }
     }
@@ -160,26 +160,26 @@ import { ConveyorApiService } from '../services/conveyor-api.service';
     .fields {
       display: grid;
       grid-template-columns: minmax(160px, 1fr) minmax(72px, 88px) minmax(72px, 88px) auto;
-      gap: 8px; align-items: end;
+      gap: 6px; align-items: end;
     }
     .model-field { min-width: 0; }
     .num-field { width: 100%; }
     .mid { font-family: ui-monospace, monospace; }
     .mlabel { margin-left: 8px; opacity: 0.65; font-size: 12px; }
-    .pane { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; min-height: 240px; }
+    .pane { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; min-height: 200px; }
     .pane.jira { min-height: 0; }
     .md-field { width: 100%; flex: 1; }
     .md-field textarea {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 13px; line-height: 1.45;
     }
-    .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .hint { font-size: 12px; color: rgba(0,0,0,0.6); margin: 0; }
     .explainer {
       font-size: 12px;
       color: rgba(0,0,0,0.75);
       margin: 0;
-      padding: 8px 10px;
+      padding: 6px 8px;
       background: #eceff1;
       border-radius: 6px;
       line-height: 1.45;

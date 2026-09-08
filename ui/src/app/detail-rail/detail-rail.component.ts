@@ -118,24 +118,24 @@ function renderTask(text: string): MdBlock[] {
     </div>
   `,
   styles: `
-    .rail { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0; gap: 8px; min-width: 0; }
-    .mono { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; overflow: auto; max-height: 40vh; margin: 8px 0; }
+    .rail { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0; gap: 6px; min-width: 0; }
+    .mono { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; overflow: auto; max-height: 40vh; margin: 6px 0; }
     .log { max-height: 40vh; }
     .log-meta { font-size: 12px; opacity: 0.7; }
     .peek { font-family: ui-monospace, monospace; }
     .meta {
-      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
-      font-size: 11px; opacity: 0.75; padding: 6px 0;
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      font-size: 11px; opacity: 0.75; padding: 4px 0;
       border-bottom: 1px solid rgba(0,0,0,0.08);
     }
     .meta code { font-family: ui-monospace, monospace; }
-    .md { padding: 4px 0 12px; overflow: auto; max-height: 32vh; }
-    .md-h { margin: 10px 0 4px; font-size: 13px; text-transform: none; letter-spacing: 0; }
+    .md { padding: 2px 0 8px; overflow: auto; max-height: 32vh; }
+    .md-h { margin: 8px 0 3px; font-size: 13px; text-transform: none; letter-spacing: 0; }
     .md-p { margin: 4px 0; font-size: 13px; }
     .md-li { display: flex; gap: 6px; font-size: 13px; margin: 3px 0; }
     .md-li .ord { opacity: 0.6; flex: none; }
-    .muted { opacity: 0.6; font-size: 13px; padding: 8px; }
-    h4 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .muted { opacity: 0.6; font-size: 13px; padding: 6px; }
+    h4 { margin: 8px 0 3px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
     .handoff { font-size: 12px; padding: 4px 0; border-bottom: 1px solid rgba(0,0,0,0.08); }
     mat-tab-group { flex: 1; min-height: 0; overflow: hidden; }
   `,

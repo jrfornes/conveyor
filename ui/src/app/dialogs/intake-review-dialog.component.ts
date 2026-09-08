@@ -82,17 +82,17 @@ export interface IntakeReviewData extends InboxDetail {
       width: 100%;
       box-sizing: border-box;
     }
-    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .cols > div {
       min-width: 0;
       overflow: hidden;
     }
-    h3 { margin: 8px 0 4px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+    h3 { margin: 6px 0 3px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
     .grade-head {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-top: 8px;
+      gap: 8px;
+      margin-top: 6px;
     }
     .grade-head h3 { margin: 0; }
     .grade-chip {
@@ -111,7 +111,7 @@ export interface IntakeReviewData extends InboxDetail {
     .grade-unknown { background: rgba(0, 0, 0, 0.06); color: rgba(0, 0, 0, 0.7); }
     .mono {
       font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap;
-      max-height: 240px; overflow: auto; background: #f5f5f5; padding: 8px;
+      max-height: 240px; overflow: auto; background: #f5f5f5; padding: 6px 8px;
       max-width: 100%;
       overflow-wrap: anywhere;
       word-break: break-word;

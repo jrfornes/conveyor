@@ -43,7 +43,7 @@ export interface AttachmentsDialogData {
     .list { list-style: none; margin: 0; padding: 0; }
     li {
       display: flex; align-items: center; justify-content: space-between;
-      gap: 12px; padding: 4px 0; font-size: 13px;
+      gap: 10px; padding: 3px 0; font-size: 13px;
     }
     li.blocked { opacity: 0.65; }
     .meta { font-size: 12px; opacity: 0.7; white-space: nowrap; }

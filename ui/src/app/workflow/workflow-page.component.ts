@@ -69,15 +69,15 @@ import {
   `,
   styles: `
     :host { display: block; height: 100%; overflow: auto; background: #f7f8fa; }
-    .page { padding: 16px 20px 32px; display: flex; flex-direction: column; gap: 16px; }
+    .page { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px; }
     .banner, .lock, .err, .note {
-      padding: 10px 14px; border-radius: 8px; font-size: 13px;
+      padding: 8px 12px; border-radius: 8px; font-size: 13px;
     }
     .banner { background: #e3f2fd; color: #0d47a1; }
     .lock { background: #fff8e1; color: #e65100; }
     .err { background: #ffebee; color: #b71c1c; }
     .note { background: #fff8e1; color: #6b4e00; }
-    .head { display: flex; align-items: center; gap: 12px; }
+    .head { display: flex; align-items: center; gap: 10px; }
     .head .right { margin-left: auto; }
     .meta { font-size: 12px; color: rgba(0,0,0,0.55); }
     .mono { font-family: 'Roboto Mono', ui-monospace, monospace; }

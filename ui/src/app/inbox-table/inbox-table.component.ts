@@ -93,17 +93,17 @@ import {
     }
   `,
   styles: `
-    .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .bar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
     .bar h2 { margin: 0; font-size: 16px; font-weight: 500; }
     .grow { flex: 1; }
     .inbox { width: 100%; }
     .empty {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 12px; padding: 48px; opacity: 0.85;
+      gap: 8px; padding: 28px; opacity: 0.85;
     }
     .busy-note {
       background: #fff8e1; color: #8a6100; border: 1px solid #ffe0a3;
-      border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-bottom: 12px;
+      border-radius: 6px; padding: 4px 8px; font-size: 12px; margin-bottom: 8px;
     }
     td { font-size: 13px; }
     .badge {

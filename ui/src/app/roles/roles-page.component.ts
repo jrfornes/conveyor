@@ -94,13 +94,13 @@ import { NewRoleDialogComponent } from '../dialogs/new-role-dialog.component';
   `,
   styles: `
     :host { display: block; height: 100%; overflow: auto; background: #f7f8fa; }
-    .page { padding: 16px 20px 32px; display: flex; flex-direction: column; gap: 16px; }
-    .banner, .lock, .err { padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+    .page { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px; }
+    .banner, .lock, .err { padding: 8px 12px; border-radius: 8px; font-size: 13px; }
     .banner { background: #e3f2fd; color: #0d47a1; }
     .banner.saved { background: #e8f5e9; color: #1b5e20; }
     .lock { background: #fff8e1; color: #e65100; }
     .err { background: #ffebee; color: #b71c1c; }
-    .head { display: flex; align-items: baseline; gap: 12px; }
+    .head { display: flex; align-items: baseline; gap: 10px; }
     .head .right { margin-left: auto; }
     .meta { font-size: 12px; color: rgba(0,0,0,0.55); }
     .mono { font-family: 'Roboto Mono', ui-monospace, monospace; }
@@ -110,7 +110,7 @@ import { NewRoleDialogComponent } from '../dialogs/new-role-dialog.component';
     }
     .studio {
       display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
-      gap: 20px; align-items: start;
+      gap: 16px; align-items: start;
     }
     .left, .right { min-width: 0; }
     @media (max-width: 960px) { .studio { grid-template-columns: 1fr; } }

@@ -197,9 +197,9 @@ import {
   `,
   styles: `
     :host { display: block; height: 100%; overflow: auto; background: #f7f8fa; }
-    .page { padding: 16px 20px 32px; display: flex; flex-direction: column; gap: 10px; max-width: 960px; }
+    .page { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 8px; max-width: 960px; }
     .crumb { align-self: flex-start; padding: 0; min-width: 0; }
-    .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .head h2 { margin: 0; font-size: 20px; font-weight: 500; }
     .pill {
       font-size: 11px; border: 1px solid #546e7a; color: #546e7a;
@@ -212,21 +212,21 @@ import {
     .meta { margin: 0; font-size: 12px; color: rgba(0,0,0,0.6); }
     .muted { color: rgba(0,0,0,0.5); }
     .next { margin: 0; font-size: 13px; color: rgba(0,0,0,0.75); }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .busy-note, .err {
-      padding: 8px 12px; border-radius: 6px; font-size: 12px;
+      padding: 6px 10px; border-radius: 6px; font-size: 12px;
     }
     .busy-note { background: #fff8e1; color: #8a6100; }
     .err { background: #ffebee; color: #b71c1c; }
     .full { width: 100%; }
     h3 {
-      margin: 8px 0 6px; font-size: 12px; text-transform: uppercase;
+      margin: 6px 0 4px; font-size: 12px; text-transform: uppercase;
       letter-spacing: 0.06em; color: rgba(0,0,0,0.55);
     }
     .caption { margin: 0 0 6px; font-size: 12px; color: rgba(0,0,0,0.6); }
     .pane {
       font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap;
-      overflow: auto; max-height: 320px; background: #fff; padding: 10px 12px;
+      overflow: auto; max-height: 320px; background: #fff; padding: 8px 10px;
       border: 1px solid rgba(0,0,0,0.08); border-radius: 6px; margin: 0;
       overflow-wrap: anywhere;
     }
@@ -235,7 +235,7 @@ import {
             border: 1px solid rgba(0,0,0,0.08); border-radius: 6px; }
     .atts li {
       display: flex; justify-content: space-between; gap: 12px;
-      padding: 8px 12px; font-size: 13px; border-bottom: 1px solid rgba(0,0,0,0.06);
+      padding: 6px 10px; font-size: 13px; border-bottom: 1px solid rgba(0,0,0,0.06);
     }
     .atts li:last-child { border-bottom: 0; }
     .atts li.off { opacity: 0.65; }
