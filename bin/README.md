@@ -302,7 +302,11 @@ Where the protocol left a choice, the refusing option was taken.
     audio, and archives are listed but never downloaded (`--select` refused;
     watch video in Jira). Bytes are fetched on `conveyor intake` into
     `.conveyor/inbox/<id>/attachments/` and copied to the intake worktree
-    `tmp/attachments/` for ticket-reviewer only. `conveyor inbox attachments
+    `tmp/attachments/` for ticket-reviewer only. Cloud attachment content
+    is requested with `redirect=false` so the file stays on the Jira origin
+    (the default is 303 to the media host); a single cross-host 3xx is still
+    followed without Authorization. `urlopen` never follows cross-host
+    (Basic auth stays on the configured host). `conveyor inbox attachments
     <id> [--select ids|none]` lists or rewrites the selection. Refresh
     updates the list and keeps `selected` for ids that still exist. OCR,
     PDF-to-text, and video transcription are out.

@@ -159,12 +159,14 @@ class JiraRedirect(unittest.TestCase):
 
 class _AuthCaptureHandler(BaseHTTPRequestHandler):
     auths = []
+    paths = []
     status = 200
     location = ""
     body = b"file-bytes"
 
     def do_GET(self):
         type(self).auths.append(self.headers.get("Authorization"))
+        type(self).paths.append(self.path)
         self.send_response(self.status)
         if self.location:
             self.send_header("Location", self.location)
@@ -179,13 +181,45 @@ class _AuthCaptureHandler(BaseHTTPRequestHandler):
         pass
 
 
+class PreferOriginBytes(unittest.TestCase):
+    def test_adds_redirect_false_on_content_url(self):
+        url = "https://ex.atlassian.net/rest/api/3/attachment/content/211285"
+        self.assertEqual(jiralib._prefer_origin_bytes(url), url + "?redirect=false")
+
+    def test_leaves_other_urls_alone(self):
+        url = "https://ex.atlassian.net/rest/api/3/issue/PROJ-1"
+        self.assertEqual(jiralib._prefer_origin_bytes(url), url)
+
+    def test_keeps_existing_redirect_query(self):
+        url = "https://ex.atlassian.net/rest/api/3/attachment/content/1?redirect=true"
+        self.assertEqual(jiralib._prefer_origin_bytes(url), url)
+
+
 class JiraDownloadContent(unittest.TestCase):
     def _serve(self, **attrs):
-        handler = type("H", (_AuthCaptureHandler,), {"auths": [], **attrs})
+        handler = type("H", (_AuthCaptureHandler,), {"auths": [], "paths": [], **attrs})
         server = HTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         return server, handler, server.server_address[1]
+
+    def test_content_url_asks_redirect_false_and_stays_on_origin(self):
+        origin, origin_h, origin_port = self._serve(status=200, body=b"origin-bytes")
+        dest = os.path.join(tempfile.mkdtemp(), "out.bin")
+        try:
+            auth = "Basic " + base64.b64encode(b"a@b.com:tok").decode("ascii")
+            jiralib.download_content(
+                f"http://127.0.0.1:{origin_port}/rest/api/3/attachment/content/211285",
+                dest, {"Authorization": auth}, 10 * 1024 * 1024)
+            with open(dest, "rb") as f:
+                self.assertEqual(f.read(), b"origin-bytes")
+            self.assertEqual(origin_h.auths, [auth])
+            self.assertEqual(origin_h.paths, [
+                "/rest/api/3/attachment/content/211285?redirect=false"])
+        finally:
+            origin.shutdown()
+            origin.server_close()
+            shutil.rmtree(os.path.dirname(dest), ignore_errors=True)
 
     def test_cdn_hop_omits_authorization(self):
         cdn, cdn_h, cdn_port = self._serve(status=200, body=b"cdn-bytes")
@@ -199,6 +233,28 @@ class JiraDownloadContent(unittest.TestCase):
                 dest, {"Authorization": auth}, 10 * 1024 * 1024)
             with open(dest, "rb") as f:
                 self.assertEqual(f.read(), b"cdn-bytes")
+            self.assertEqual(origin_h.auths, [auth])
+            self.assertEqual(cdn_h.auths, [None])
+        finally:
+            origin.shutdown()
+            origin.server_close()
+            cdn.shutdown()
+            cdn.server_close()
+            shutil.rmtree(os.path.dirname(dest), ignore_errors=True)
+
+    def test_cdn_hop_follows_303(self):
+        """Jira Cloud's documented success for attachment content is 303, not 302."""
+        cdn, cdn_h, cdn_port = self._serve(status=200, body=b"media-bytes")
+        origin, origin_h, origin_port = self._serve(
+            status=303, location=f"http://127.0.0.1:{cdn_port}/file")
+        dest = os.path.join(tempfile.mkdtemp(), "out.bin")
+        try:
+            auth = "Basic " + base64.b64encode(b"a@b.com:tok").decode("ascii")
+            jiralib.download_content(
+                f"http://127.0.0.1:{origin_port}/attachment/content/211285",
+                dest, {"Authorization": auth}, 10 * 1024 * 1024)
+            with open(dest, "rb") as f:
+                self.assertEqual(f.read(), b"media-bytes")
             self.assertEqual(origin_h.auths, [auth])
             self.assertEqual(cdn_h.auths, [None])
         finally:
