@@ -18,15 +18,17 @@ Conveyor is a local-first orchestrator for a configurable pipeline of Cursor CLI
 ## Layout
 
 ```
-bin/conveyor            operator CLI: init | start | stop [--now] | task [--delete] | status | log | resume
+bin/conveyor            operator CLI: init | start [--no-setup] | stop [--now] | setup | task [--delete]
+                        | status | log | resume
                         | import | intake | inbox | approve | reject | workflow
 bin/handoff.sh          validator + audit gate (protocol §4–5); agents call this exact name
 bin/role-loop.sh        per-role loop (protocol §6); supports --once for tests
 bin/merge.sh            protocol §7
 bin/hooks/commit-msg    byline hook (protocol §7.4)
+bin/hooks/npm-worktree-setup  worked example for [global] worktree_setup
 bin/conveyor-ui         optional localhost cockpit launcher (`--demo` throwaway fixture)
 bin/README.md           language decision, install, "Ambiguities resolved"
-lib/conveyor/           board, config, handoff, layout, queue, util, presets, workflows, inbox, adapters, agent, intake, jira
+lib/conveyor/           board, config, handoff, layout, queue, setup, util, presets, workflows, inbox, adapters, agent, intake, jira
 intake/                 ticket-reviewer.md + rubric.md (operator-owned; not a coding role)
 ui/                     optional Angular cockpit (not protocol)
 test/fake-agent         scripted agent (protocol §11)
@@ -57,7 +59,8 @@ Everything is a file or a git object; state is the directory a file sits in.
 - **Handoff = commit SHA + tiny validated file.** Agents write a three-line draft (`to`, `task`, `verdict`) to `./tmp/handoff.txt` and run `handoff.sh`. The validator fills `type`, `id`, `from`, `commit` (10-hex), `task_id`, `created_at`, and the body (full commit message). Permitted `(from,to,verdict)` triples are derived from `conveyor.conf` order, never hardcoded.
 - **Audit gate**: first `handoff.sh` call for a candidate (sha256 of commit+to+task+verdict) exits 2 with `AUDIT_REQUIRED`; identical resubmission passes; any change re-challenges. `audit_count` in the board is written only by `handoff.sh`.
 - **Role loop**: recover `in_process/` first (refuse if >1), dequeue oldest from `new/`, `merge.sh <commit>`, check ceilings, run the agent, then decide purely by counting `outbox/*.handoff` (1 = success, 0 = retry attempt with `--resume`, >1 = park). Delivery sweep moves outbox → recipient `inbox/new` and keeps `sent/`; idempotent via id lookup. `done` runs the `[global] integration` policy (default `merge` into main as `operator`; also `hold` and `command: <cmd>`, protocol §7.3).
-- **Ceilings** park to `needs-human/` with a `reason` file: `max-retries`, `max-minutes`, `max-attempts`, `merge-conflict`, `untracked-collision`, `multiple-handoffs`, `no-rules`, `no-agent`, `no-task-file`, `done-command`. `conveyor resume` is the only way out.
+- **Ceilings** park to `needs-human/` with a `reason` file: `max-retries`, `max-minutes`, `max-attempts`, `merge-conflict`, `untracked-collision`, `multiple-handoffs`, `no-rules`, `no-agent`, `no-task-file`, `setup-failed`, `done-command`. `conveyor resume` is the only way out.
+- **Worktree setup** (`[global] worktree_setup`, optional): one opaque operator command that makes a role's tree runnable. Runs at `conveyor start` and in the loop right after a merge that moved a `worktree_setup_paths` entry, keyed on a content stamp (blob oids at HEAD + the command) in `roles/<role>/setup.stamp`. Written only on exit 0; failure dies at `start` and parks `setup-failed` in the loop. Unset = the feature does not exist.
 - **Locks** are `mkdir` directories with a `pid` file, 30 s timeout, stale-pid recovery. Board writes: lock, rewrite whole file to `.tmp`, rename.
 
 ## Hard rules

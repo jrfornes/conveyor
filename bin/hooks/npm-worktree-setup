@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Conveyor worktree-setup hook — install node dependencies in a role's tree.
+
+Wire it up in the target project's conveyor.conf:
+
+    [global]
+    worktree_setup       = python3 .conveyor/local/npm-worktree-setup
+    worktree_setup_paths = package-lock.json package.json
+    worktree_setup_timeout = 1800     # optional; 0 = unbounded
+
+Copy this file to the project's .conveyor/local/ (gitignored) and edit it —
+it is an example, not a supported integration. Conveyor never detects a package
+manager: the command is opaque, and this file is the only thing here that knows
+what npm is.
+
+Conveyor passes CONVEYOR_ROOT / CONVEYOR_ROLE / CONVEYOR_WORKTREE /
+CONVEYOR_REASON (`create` on a fresh tree, `changed` when a watched path moved)
+/ CONVEYOR_COMMIT (the merged commit; empty at `conveyor start`), and runs it
+with cwd = the worktree. Exit 0 = the tree's dependencies are present; nonzero
+stops `conveyor start`, and in a role loop parks the task `setup-failed` for
+`conveyor resume`.
+
+Two cheaper shapes, once N roles × a cold install stops being tolerable:
+
+  * A package manager with a content-addressed shared store (pnpm, yarn berry).
+    Each worktree gets its own node_modules of links into one store, so role
+    two onward costs seconds. This is the recommended answer.
+  * Symlinking the main checkout's node_modules into the worktree
+    (`os.symlink(os.path.join(root, "node_modules"), "node_modules")`).
+    Nearly free, but every role then shares one tree: a role that installs a
+    new dependency changes what the others see, mid-run. Only safe on a belt
+    whose roles never install anything.
+
+Whatever you choose, `git status --porcelain` in the worktree must be empty
+afterwards — handoff.sh refuses a dirty tree (E_DIRTY), and no agent can fix
+that from inside. Add whatever the install creates (node_modules/, .angular/,
+.nx/) to the .gitignore that is *committed* on the role branches.
+"""
+import os
+import subprocess
+import sys
+
+role = os.environ.get("CONVEYOR_ROLE", "")
+reason = os.environ.get("CONVEYOR_REASON", "create")
+
+# One command for the whole belt; branch on the role rather than adding a
+# per-role knob. The ticket-reviewer only reads and writes markdown, so it
+# never needs a JS toolchain.
+if role == "ticket-reviewer":
+    sys.exit(0)
+
+# `npm ci` is the honest install for a fresh tree: it wipes node_modules and
+# installs exactly the lockfile. After a merge, `npm install` reconciles the
+# tree with the lockfile that just landed, which is far cheaper than a wipe.
+argv = ["npm", "ci"] if reason == "create" else ["npm", "install"]
+print(f"{role}: {' '.join(argv)} ({reason})", flush=True)
+sys.exit(subprocess.run(argv).returncode)

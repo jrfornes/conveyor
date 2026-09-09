@@ -1,6 +1,6 @@
 # Worktree setup — a role's tree is usable the moment it exists
 
-**Status:** planned. Not started.
+**Status:** built. `[global] worktree_setup` / `worktree_setup_paths` / `worktree_setup_timeout`, `conveyor setup`, `conveyor start --no-setup`, the post-merge loop step and the `setup-failed` park all ship; `test/test_worktree_setup.py` carries tests 1–17 (the mid-pipeline half included, filed here rather than in `test_pipeline.py` beside the recorder fixture they share), 18 is in `test_config_inbox.py` and 19 in `test_inv03_rename_only.py`. Locked decision 11 resolved the other way round: `docs/plans/run-deadlines.md` landed first and carried the process-group kill, so `util.run_bounded` wraps its `util.kill_group` and this plan reuses `util.duration` rather than adding a second formatter. Step 5 of *Verification* — a real NX/Angular repo — is still to do.
 
 **Job:** `conveyor start` creates `.worktrees/<role>` and stops. For any
 project whose tests need installed dependencies, that tree cannot run its own

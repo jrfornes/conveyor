@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+**Worktree setup**
+
+- **`[global] worktree_setup` makes a role's tree runnable.** Every role works in its own git
+  worktree, and worktrees do not share `node_modules` / a virtualenv / `vendor/`. On any project
+  whose gates need installed dependencies, one operator-supplied command now installs them, at the
+  two moments they are actually needed: a tree that is new or whose dependency inputs moved at
+  `conveyor start`, and — the half that bites — in the role loop right after a merge that moved a
+  watched path. Without the second, the reviewer merges the coder's new lockfile into a tree whose
+  `node_modules` predates it, its gate fails on a missing module, and that becomes a finding
+  against correct work. Protocol §6.3.
+- Three keys, all optional and all in `[global]`: `worktree_setup` (absent or empty = the feature
+  does not exist and no run path changes), `worktree_setup_paths` (the paths whose content
+  triggers a re-run), `worktree_setup_timeout` (default 1800 s, `0` = unbounded). Setting paths
+  without a command is a `ConfigError`.
+- **Change detection is a content stamp, never mtime.** `.conveyor/roles/<role>/setup.stamp` is a
+  sha256 over the blob oid of each watched path at the worktree's HEAD plus the command string. A
+  merge rewrites mtimes constantly and none of it is evidence; the oids come from
+  `git rev-parse HEAD:<path>`, so they cannot disagree with what was merged. Changing the command
+  re-runs it everywhere. The stamp is written **only** on exit 0 — a failed install must not look
+  done.
+- **Failure refuses rather than guesses.** At `conveyor start` it dies before a single loop
+  launches; in a loop it parks the item `setup-failed` before the ceiling checks and before any
+  agent runs, with `conveyor resume <task>` the way out. The command's output is captured to
+  `.conveyor/logs/<role>/setup.log` in the gate/integration shape (`exit: <code>`, or
+  `exit: timeout`).
+- **A live loop's tree is never installed into.** `conveyor start` is re-runnable and is routinely
+  run against a belt that is already up; a role whose loop holds a live pid is warned about and
+  skipped, which also makes protocol §2.3's single writer for `setup.stamp` true by construction.
+- **A dirty tree warns, loudly, and is not refused.** `handoff.sh` refuses an uncommitted tree
+  (`E_DIRTY`) and no agent can fix that from inside, so `conveyor start` names the first five
+  paths and the total. The `.gitignore` stays the operator's.
+- `conveyor setup [--role <role>] [--force]` runs the same hook outside `start`;
+  `conveyor start --no-setup` skips it for one run and writes no stamp. A start where nothing
+  changed says nothing about setup at all.
+- Conveyor never detects a package manager: no npm/pnpm/yarn sniffing, no generated default, no
+  lockfile heuristics. The command is opaque, and `bin/hooks/npm-worktree-setup` ships as a worked
+  example to copy and edit — with the two cheap alternatives (a shared store, a symlink) and their
+  trade-offs named in its docstring.
+- New `util.run_bounded`: one helper that runs a shell command in its own process group under a
+  deadline and writes the gate-style log. `shell=True` with a plain `timeout=` kills the shell and
+  orphans the install, which is the bug it exists to not have. It escalates through the
+  `util.kill_group` that run deadlines landed, rather than repeating it.
+
 **Run deadlines: nothing hangs forever**
 
 - **`max_minutes` now kills the run, not just the next dequeue.** It was checked once, before the

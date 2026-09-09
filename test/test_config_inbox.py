@@ -137,5 +137,34 @@ class WriteInbox(unittest.TestCase):
         self.assertIn("repair:", str(ctx.exception))
 
 
+    def test_worktree_setup_keys_round_trip_and_save_stays_byte_identical(self):
+        """The three keys parse; a config without them survives save() unchanged,
+        so presets.resolve() does not flip an untouched belt to `custom`."""
+        _write(self.tmp, ROLES + "\ngate none\n\n[global]\npoll_seconds = 2\n"
+               "worktree_setup = pnpm install --frozen-lockfile\n"
+               "worktree_setup_paths = pnpm-lock.yaml package.json\n"
+               "worktree_setup_timeout = 60\n")
+        cfg = config.load(self.tmp)
+        self.assertEqual(cfg.worktree_setup, "pnpm install --frozen-lockfile")
+        self.assertEqual(cfg.worktree_setup_paths, ["pnpm-lock.yaml", "package.json"])
+        self.assertEqual(cfg.worktree_setup_timeout, 60)
+        before = read(os.path.join(self.tmp, "conveyor.conf"))
+        config.save(self.tmp, cfg)
+        after = read(os.path.join(self.tmp, "conveyor.conf"))
+        self.assertIn("worktree_setup = pnpm install --frozen-lockfile", after)
+        self.assertEqual(before.split("[global]")[1], after.split("[global]")[1])
+
+    def test_defaults_when_the_keys_are_absent(self):
+        _write(self.tmp, ROLES)
+        cfg = config.load(self.tmp)
+        self.assertEqual(cfg.worktree_setup, "")
+        self.assertEqual(cfg.worktree_setup_paths, [])
+        self.assertEqual(cfg.worktree_setup_timeout, 1800)
+        before = read(os.path.join(self.tmp, "conveyor.conf"))
+        config.save(self.tmp, cfg)
+        self.assertNotIn("worktree_setup", read(os.path.join(self.tmp, "conveyor.conf")))
+        self.assertIn("role coder", before)
+
+
 if __name__ == "__main__":
     unittest.main()

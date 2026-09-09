@@ -2,7 +2,8 @@
 """Conveyor operator CLI (protocol §10, runbook §4–7).
 
 conveyor init [<path>] | uninstall [--yes] [--bundle]
-           | start | stop [--now] | task <name> [--delete]
+           | start [--no-setup] [--no-smoke] | stop [--now] | task <name> [--delete]
+           | setup [--role <role>] [--force]
            | status | log <role> [<task>] | resume <task> [--to <role>]
            | import --source manual|jira [--title ...]
            | import --refresh <id> | import --replace <id>
@@ -35,7 +36,7 @@ BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
 from conveyor import (adapters, agent as agentlib, attachments, board, config, gates, handoff, inbox,  # noqa: E402
                       intake as intakelib, jira as jiralib, layout, presets, queue,
-                      roles as roleslib, util)
+                      roles as roleslib, setup as setuplib, util)
 
 RULE_FILES = ["constitution.md", "constitution/engineering.md", "constitution/workflow.md",
               "constitution/handoffs.md", "project.md"]
@@ -573,6 +574,73 @@ def check_ignores(root, cfg):
         util.die(TRACKED_RULES.format(rel=RULES_REL, refs=", ".join(refs)))
 
 
+# --- worktree setup ---------------------------------------------------------
+SETUP_LIVE_LOOP = (
+    "warning: {role}'s loop is running (pid {pid}); skipped worktree setup.\n"
+    "  Stop the loop and re-run conveyor start to install into that tree."
+)
+
+
+def run_worktree_setup(root, paths, cfg, role, wt, what="conveyor start"):
+    """Install a role's dependencies when the tree needs it (protocol §6.3).
+
+    Silence when the stamp matches: a second `conveyor start` that changed
+    nothing prints nothing. A role whose loop is live is warned about and left
+    alone -- installing into a tree an agent is working in corrupts the run,
+    and skipping it keeps the stamp's single writer true by construction.
+    Failure dies: a half-installed tree produces findings about the
+    environment instead of the task."""
+    need, reason = setuplib.needs_run(paths, wt, cfg, role)
+    if not need:
+        return
+    pid = loop_pid(paths, role)
+    if pid:
+        return print(SETUP_LIVE_LOOP.format(role=role, pid=pid))
+    print(f"{role}: setup ({reason}) … ", end="", flush=True)
+    r = setuplib.run(paths, root, wt, cfg, role, reason)
+    if not r.ok:
+        detail = (f"timed out after {cfg.worktree_setup_timeout}s" if r.timed_out
+                  else f"exit {r.code}")
+        print("failed")
+        util.die(f"{what}: worktree setup failed for {role} ({detail})\n"
+                 f"  see {os.path.relpath(r.log, root)}")
+    print(f"ok, {util.duration(r.seconds)}")
+    warn_dirty_worktree(wt)
+
+
+def warn_dirty_worktree(wt):
+    """A dirty tree is warned about, loudly, and not refused (locked decision 17)."""
+    names, total = setuplib.dirty_paths(wt)
+    if total:
+        print(setuplib.format_dirty(wt, names, total))
+
+
+def cmd_setup(args):
+    """conveyor setup [--role <role>] [--force]: the same hook, outside start."""
+    root, cfg, paths = setup()
+    if not setuplib.enabled(cfg):
+        util.die("conveyor setup: no `worktree_setup` under [global] in conveyor.conf; "
+                 "nothing to run")
+    only = _flag(args, "--role")
+    names = cfg.names()
+    if only:
+        if only not in names and only != config.INTAKE_ROLE:
+            util.die(f"conveyor setup: unknown role {only}; "
+                     f"configured roles are {', '.join(names)}")
+        names = [only]
+    paths.ensure(cfg, extra_roles=(config.INTAKE_ROLE,) if only == config.INTAKE_ROLE else ())
+    for role in names:
+        wt = paths.worktree(role)
+        if not os.path.exists(os.path.join(wt, ".git")):
+            util.die(f"conveyor setup: {os.path.relpath(wt, root)} does not exist; "
+                     f"run conveyor start first")
+        if "--force" in args:
+            # Pure convenience over deleting setup.stamp by hand.
+            with contextlib.suppress(OSError):
+                os.remove(setuplib.stamp_path(paths, role))
+        run_worktree_setup(root, paths, cfg, role, wt, what="conveyor setup")
+
+
 def cmd_start(args):
     root, cfg, paths = setup()
     agent = os.environ.get("CONVEYOR_AGENT_BIN", cfg.agent_bin)
@@ -616,6 +684,8 @@ def cmd_start(args):
         rp = paths.role(role.name)
         if os.path.exists(rp.stop):
             os.remove(rp.stop)
+        if "--no-setup" not in args:
+            run_worktree_setup(root, paths, cfg, role.name, wt)
         if "--no-smoke" not in args:
             env = {**os.environ, "CONVEYOR_ROLE": role.name, "CONVEYOR_WORKTREE": wt, "CONVEYOR_ROOT": root}
             s = subprocess.run([agent, "-p", "--force", "--model", role.model, *cfg.agent_args,
@@ -1082,6 +1152,14 @@ def cmd_intake(args):
         # The reset prunes tmp/ when a previous run tracked it (a repo whose
         # init files, .gitignore included, are not committed yet).
         os.makedirs(os.path.join(wt, "tmp"), exist_ok=True)
+        try:
+            run_worktree_setup(root, paths, cfg, config.INTAKE_ROLE, wt,
+                               what="conveyor intake")
+        except SystemExit:
+            # util.die inside the try would otherwise leave the item stuck in
+            # `grading`; the operator has to be able to see and re-click it.
+            inbox.update_meta(paths, iid, status="imported")
+            raise
         src = inbox.read_file(paths, iid, "source.md")
         util.atomic_write(os.path.join(wt, "tmp", "source.md"), src if src.endswith("\n") else src + "\n")
         att_dest = os.path.join(wt, "tmp", "attachments")
@@ -1652,6 +1730,7 @@ def cmd_gate(args):
 
 
 COMMANDS = {"init": cmd_init, "uninstall": cmd_uninstall, "start": cmd_start, "stop": cmd_stop,
+            "setup": cmd_setup,
             "task": cmd_task, "status": cmd_status, "log": cmd_log, "resume": cmd_resume,
             "import": cmd_import, "intake": cmd_intake, "inbox": cmd_inbox,
             "start-task": cmd_start_task, "approve": cmd_approve, "reject": cmd_reject,
