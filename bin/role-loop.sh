@@ -81,6 +81,7 @@ class Loop:
         self.me = self.cfg.role(self.role)
         self.rp = self.paths.role(self.role)
         self.agent = None
+        self.agent_pgid = None
         os.environ["CONVEYOR_ROOT"] = self.paths.root
         os.environ.setdefault("CONVEYOR_AGENT_BIN", self.cfg.agent_bin)
         os.environ["PATH"] = BIN + os.pathsep + os.environ.get("PATH", "")
@@ -114,8 +115,13 @@ class Loop:
 
     def on_term(self, *_):
         # No agent.wait() here: the handler may run inside Popen.wait(), which holds a lock.
-        if self.agent and self.agent.poll() is None:
-            self.agent.terminate()
+        # TERM goes to the agent's process group, not just the leader: `stop --now` must
+        # stop the tree, or children it spawned outlive the loop (protocol §6.7).
+        if self.agent_pgid:
+            try:
+                os.killpg(self.agent_pgid, signal.SIGTERM)
+            except OSError:
+                pass  # the group is already gone; that is the success case
         raise SystemExit(4)
 
     def run(self):
@@ -183,6 +189,7 @@ class Loop:
             if over:
                 return park("max-minutes", f"task started {started}, exceeds max_minutes {self.me.max_minutes}")
         attempt, session, last_err, ran = int(h.get("attempt", 1)), h.get("session"), None, False
+        killed = None
         while True:
             n = self.valid_outbox_count()
             if n == 1:
@@ -200,6 +207,12 @@ class Loop:
                     handoff.move(os.path.join(self.rp.outbox, f), os.path.join(self.paths.needs_human, task),
                                  f"outbox-{i}.handoff")
                 return park("multiple-handoffs", f"{n} handoffs in outbox, kept as outbox-N.handoff; never guessing")
+            if killed:
+                # The outbox is checked first on purpose: an agent that queued a valid
+                # handoff and then wedged has done the work, and the kill must not
+                # discard it. An empty outbox means the task's budget is spent, so this
+                # is a park, never another attempt -- a retry would spend it twice.
+                return park("max-minutes", killed)
             if ran:
                 attempt += 1
                 handoff.stamp(path, attempt=attempt, **({"session": session} if session else {}))
@@ -218,9 +231,28 @@ class Loop:
             prompt = self.build_prompt(path, task, attempt, last_err)
             if prompt is None:
                 return park("no-task-file", f"tasks/{task}.md is not at HEAD after merge")
-            session, last_err = self.run_agent(task, h["id"], attempt, prompt, session)
+            # Recomputed per attempt: the deadline is what is left of the task's
+            # budget, so three attempts cannot each spend the whole of it.
+            session, last_err, kill_detail = self.run_agent(
+                task, h["id"], attempt, prompt, session, self.deadline_seconds(started))
             util.crash_point("after-agent")
+            killed = kill_detail
             ran = True
+
+    def deadline_seconds(self, started):
+        """One run's wall-clock budget: what is left of `max_minutes` for this task.
+
+        Floored at 60 s. Without the floor `max_minutes = 0` -- legal, and what the
+        M4 ceiling test configures -- would kill every run the instant it started,
+        and a just-started task is promised one attempt (§6.6). The floor is the only
+        place a run may outlive the task budget.
+        """
+        forced = os.environ.get("CONVEYOR_DEADLINE_SECONDS")
+        if forced:  # test hook, same family as CONVEYOR_CRASH_AT
+            return float(forced)
+        budget = self.me.max_minutes * 60
+        remaining = budget - util.age_seconds(started) if started else budget
+        return max(60, remaining)
 
     def valid_outbox_count(self):
         n = 0
@@ -287,7 +319,7 @@ class Loop:
             return cand if os.path.isfile(cand) and os.access(cand, os.X_OK) else None
         return shutil.which(b)
 
-    def run_agent(self, task, hid, attempt, prompt, session):
+    def run_agent(self, task, hid, attempt, prompt, session, deadline_s):
         log = os.path.join(self.paths.logs, self.role, f"{task}_{hid}_a{attempt}.jsonl")
         cmd = [os.environ["CONVEYOR_AGENT_BIN"], "-p", "--force", "--model", self.me.model,
                "--output-format", "stream-json", *self.cfg.agent_args, *self.me.args]
@@ -304,30 +336,72 @@ class Loop:
                          f"{', resumed session' if session else ''}"})))
             lf.flush()
             try:
+                # start_new_session: the agent leads its own process group, so the
+                # deadline (and `stop --now`) can take its children with it. Without
+                # it the agent shares the loop's group and a killpg would kill the loop.
                 self.agent = subprocess.Popen(cmd, cwd=self.wt, stdout=subprocess.PIPE,
-                                              stderr=subprocess.STDOUT)
+                                              stderr=subprocess.STDOUT, start_new_session=True)
             except OSError as e:
                 # Binary vanished or lost +x since the pre-flight check: degrade to a
                 # failed attempt (max-attempts will park) rather than crash the loop.
                 self.agent = None
                 msg = f"E_NO_AGENT: cannot launch {cmd[0]!r}: {e}"
                 lf.write(stamped(json.dumps({"type": "conveyor", "error": msg})))
-                return session, msg
+                return session, msg, None
+            self.agent_pgid = self.agent.pid  # start_new_session makes pid == pgid
             # The stamper, not the loop, sits between the agent and the log: kill -9 of
             # the loop leaves agent and stamper running and the run still lands dated
             # in the file, exactly as the plain redirect used to (invariant 11).
             stamper = subprocess.Popen([sys.executable, os.path.join(BIN, "role-loop.sh"), "--stamp"],
                                        stdin=self.agent.stdout, stdout=lf, stderr=subprocess.DEVNULL)
             self.agent.stdout.close()  # the stamper owns the read end; it needs the EOF
-            rc = self.agent.wait()
+            started = time.monotonic()
+            killed = escalated = False
+            try:
+                rc = self.agent.wait(timeout=deadline_s)
+            except subprocess.TimeoutExpired:
+                killed = True
+                escalated = util.kill_group(self.agent_pgid, self.agent)
+                rc = self.agent.wait()
+            elapsed = time.monotonic() - started
             self.agent = None
-            stamper.wait()  # every agent line is in the file before the exit record
+            # The stamper sees EOF only when every writer closes, so a child that
+            # inherited the agent's stdout outlives the agent and would block this
+            # wait forever. Bound it, then take the whole group with it.
+            if not self.drain(stamper):
+                util.kill_group(self.agent_pgid)
+                if not self.drain(stamper):
+                    stamper.kill()
+                    stamper.wait()
+            self.agent_pgid = None
+            detail = None
+            if killed:
+                span = util.duration(elapsed)
+                # `text` reads as the predicate of `event`, the way the run record does:
+                # `conveyor log` prints them in that order (LOG_DETAIL_KEYS).
+                said = f"after {span} (max-minutes deadline)"
+                lf.write(stamped(json.dumps(
+                    {"type": "conveyor", "event": "killed", "reason": "max-minutes",
+                     "after_s": int(elapsed), "signal": "TERM", "escalated": escalated,
+                     "text": said})))
+                print(f"{task}: attempt {attempt} killed {said}", flush=True)
+                detail = (f"killed attempt {attempt} after {span}, "
+                          f"exceeds max_minutes {self.me.max_minutes}")
             lf.write(stamped(json.dumps({"type": "conveyor", "event": "exit", "exit": rc})))
         print(f"{task}: attempt {attempt} agent exited {rc}", flush=True)
         text = util.read_text(log)
         m = SESSION_RE.search(text)
         errs = VALIDATOR_RE.findall(text)
-        return (m.group(1) if m else session), (errs[-1] if errs else None)
+        return (m.group(1) if m else session), (errs[-1] if errs else None), detail
+
+    @staticmethod
+    def drain(stamper):
+        """Wait a bounded time for the stamper to finish. False when it is still stuck."""
+        try:
+            stamper.wait(timeout=util.drain_grace())
+            return True
+        except subprocess.TimeoutExpired:
+            return False
 
 
 def main():

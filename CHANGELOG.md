@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+**Run deadlines: nothing hangs forever**
+
+- **`max_minutes` now kills the run, not just the next dequeue.** It was checked once, before the
+  attempt loop, and the run itself was an unbounded `wait()` — so an agent that wedged on attempt 1
+  stopped the belt indefinitely and never parked. The agent now runs under a deadline equal to what
+  is left of the task's budget (floored at 60 s, so `max_minutes = 0` keeps parking on the
+  pre-flight check as it always did). Protocol §6.6, §6.9.
+- **Kills are process-group kills.** The agent is launched with `start_new_session`; the deadline
+  sends `TERM` to its group, then `KILL`. Terminating only the agent left children holding its
+  stdout, which kept the log stamper — and so the loop — blocked on an EOF that never came.
+  `conveyor stop --now` now stops the tree for the same reason (§6.7).
+- A killed run is **not** a failed attempt: no `attempt` increment, no `--resume` retry. It parks
+  `max-minutes` immediately, with a detail beginning `killed attempt <n> after <n>m<n>s`. The
+  pre-flight park keeps its old `task started <ts>, …` wording, so the two are distinguishable.
+- The outbox is re-checked after a kill and before parking: an agent that queued a valid handoff and
+  then wedged still has its item forwarded. The outbox stays the only signal.
+- The run log gains an `event: killed` record before `event: exit`, with `after_s` and `escalated`
+  (true when `TERM` was not enough and `KILL` followed — wedged, not merely busy).
+- **Project gates are bounded too.** `[global] gate_timeout` in `conveyor.conf` (default 900 s;
+  `0` = unbounded) sets the budget for any one gate, overridden per gate by an optional
+  `## Gate timeouts` section in `project.md`. A gate that runs past its budget fails with the new
+  `E_GATE_TIMEOUT` — an ordinary validator refusal with repair text the agent can act on within its
+  remaining attempts, rather than an opaque death when the run deadline eventually fires.
+- Gates get their own process group as well: under `shell=True` a plain timeout kills the shell and
+  orphans the command that is actually stuck. `handoff.sh` installs a `SIGTERM` handler so the gate
+  in flight goes down with a killed run instead of outliving it.
+- A timed-out gate writes the same log as a failed one — same path, the output it had managed so
+  far, and `exit: timeout` on the first line. `conveyor gate run` honours the same budget and dies
+  with the elapsed seconds and the log path.
+
 **Dated role logs**
 
 - **Run logs carry the time of every line.** `.conveyor/logs/<role>/<task>_<id>_a<attempt>.jsonl`

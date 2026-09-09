@@ -1,6 +1,6 @@
 # Run deadlines — nothing hangs forever
 
-**Status:** planned. Not started.
+**Status:** built.
 
 **Job:** a hung `cursor-agent` or a hung gate command must not stop the belt.
 Today both do. `max_minutes` becomes a deadline that is *enforced* rather than

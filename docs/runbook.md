@@ -131,6 +131,18 @@ show a blank clock instead.
 `loop.log` in the same directory is the loop's own timeline (item picked up, attempt started, agent
 exit code, `forwarded`/`merged`, parks), one dated line each.
 
+A run that outlived its `max_minutes` was killed, and says so in both files:
+
+```
+16:41:07 [conveyor] killed after 120m0s (max-minutes deadline)
+16:41:17 [conveyor] exit -15
+```
+
+`escalated: true` in that record means `TERM` was not enough and the run had to be `KILL`ed — the
+agent, or something it spawned, was wedged rather than merely busy. That is the first thing to look at before deciding the ceiling is too
+tight. If the agent had already handed off before it wedged, nothing parks: the outbox is the only
+signal, and the item is forwarded as usual.
+
 ## 7. Recovery
 
 - **Machine rebooted / loops killed:** `conveyor start`. Anything in `in_process/` resumes; anything in `outbox/` is delivered; nothing is duplicated.
@@ -139,6 +151,8 @@ exit code, `forwarded`/`merged`, parks), one dated line each.
 - **Merge conflict on `pass`:** parked with reason `merge-conflict`. Resolve on `main` by hand (commit gets `By operator.`), then `conveyor resume <task>`.
 - **Two files in `in_process/`:** the loop refuses to start and says so. Move one back to `new/` by hand; this only happens after manual edits.
 - **Agent keeps failing to hand off:** read the log; usually a validator error it did not follow. After `max_attempts` it parks. Fix the prompt or the task, `conveyor resume`.
+- **`max-minutes`:** the task ran past its budget. Two ways in, and the second line of the `reason` file says which: `task started <ts>, …` means the ceiling was already spent when the item was picked up; `killed attempt <n> after <n>m<n>s, …` means the run itself was killed at its deadline. A killed run is not a failed attempt, so `attempt` has not advanced — raise `max_minutes` in `conveyor.conf` if the work is genuinely that long, then `conveyor resume <task>`. Counters are never reset, so an unchanged ceiling parks again on the next run.
+- **`E_GATE_TIMEOUT` in the log:** a project gate did not finish within its budget (`[global] gate_timeout`, default 900 s, or its own line under `## Gate timeouts` in `project.md`). The agent sees this as an ordinary validator refusal and can retry within `max_attempts`. Reproduce it with `conveyor gate run <name> --role <role>`, which honours the same budget; the partial output is in `.conveyor/logs/gates/`. Usually the gate is in watch mode or waiting on a prompt.
 - **Wipe and restart:** `conveyor stop --now && conveyor uninstall --yes`. Sequence numbers reset; `sent/` history is gone. Add `--bundle` for a full scratch reset (also removes `constitution/`, `roles/`, `conveyor.conf`, `tasks/`, and the Conveyor `.gitignore` entries). Does not rewrite history on `main`.
 
 ## 8. Testing without Cursor

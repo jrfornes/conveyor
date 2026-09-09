@@ -366,7 +366,18 @@ After §4.4 and before the audit gate (§5), `handoff.sh` reads `project.md` fro
 1. **`## Test command` only (legacy):** Under the heading (until the next `## ` line), take the first fenced block, strip HTML comments, and use the first remaining non-empty line as the command for implicit gate `test`. Extra lines in the fence are ignored. Empty or comment-only fence skips all gates.
 2. **`## Gates` + `## Required on`:** Under `## Gates`, each gate is a name matching `^[a-z][a-z0-9:-]*$` followed by either a one-line `name: argv` or a fenced block (same extraction rules as above). Under `## Required on`, each non-empty line is `<role> ready|pass: name, name, …`. Roles not on the current belt are ignored at `conveyor start` validation but bindings are stored for other workflows.
 
-`findings` and `ticket-reviewer` skip all project gates. For other `(role, verdict)` pairs, run the listed gate commands in order in the worktree (`shell=True`, no timeout). Substitutions before exec: `{inbound}` = inbound handoff `commit` (10-hex); `{head}` = worktree HEAD (10-hex). Any other `{…}` is `E_GATE_SUBST`. A required name with no command is `E_GATE_UNKNOWN`. Malformed catalog or both section forms present is `E_GATE_PARSE`. Exit 0 on every command continues to the audit gate. Nonzero is `E_GATE_FAILED`: stdout, stderr, exit status, and argv are written to `.conveyor/logs/gates/<role>-<task>-<commit>-<name>.txt`. The script MUST NOT write `audit_pending`, increment `audit_count`, or queue on any gate error.
+`findings` and `ticket-reviewer` skip all project gates. For other `(role, verdict)` pairs, run the listed gate commands in order in the worktree (`shell=True`, each in its own process group, under the budget below). Substitutions before exec: `{inbound}` = inbound handoff `commit` (10-hex); `{head}` = worktree HEAD (10-hex). Any other `{…}` is `E_GATE_SUBST`. A required name with no command is `E_GATE_UNKNOWN`. Malformed catalog or both section forms present is `E_GATE_PARSE`. Exit 0 on every command continues to the audit gate. Nonzero is `E_GATE_FAILED`: stdout, stderr, exit status, and argv are written to `.conveyor/logs/gates/<role>-<task>-<commit>-<name>.txt`. The script MUST NOT write `audit_pending`, increment `audit_count`, or queue on any gate error.
+
+**Gate timeouts.** A gate that never returns hangs the agent, which hangs the loop, below the loop's own ceilings. Every gate runs under a budget in seconds: `[global] gate_timeout` in `conveyor.conf` (default **900**; `0` = unbounded), overridden per gate by an optional `## Gate timeouts` section in `project.md`, parsed like `## Required on` — one `<name>: <seconds>` per line, names must exist under `## Gates` (or be the implicit `test`), values must be non-negative integers, anything else is `E_GATE_PARSE`:
+
+```markdown
+## Gate timeouts
+
+build: 1800
+lint: 300
+```
+
+The gate is launched with `start_new_session` so it leads its own process group; `shell=True` means a timeout that killed only the shell would orphan the command that is actually stuck. On expiry the group gets `TERM`, then `KILL` after a grace period, and the failure is `E_GATE_TIMEOUT` — a normal validator refusal the agent can read and act on within its remaining attempts, not an opaque death. A timed-out gate writes the same log as a failed one, at the same path, with the partial output it had produced and `exit: timeout` on the first line. Because the gate's group is its own, it would survive a kill of the agent's group: `handoff.sh` installs a `SIGTERM` handler that kills the gate in flight before exiting.
 
 `conveyor start` parses the **main checkout** `project.md` and refuses if the catalog does not parse or any required-on name for a role on the current belt is missing from `## Gates`. It does not exec commands.
 
@@ -408,6 +419,7 @@ Codes and messages are part of the interface; `constitution/handoffs.md` quotes 
 | `E_GATE_UNKNOWN` | required gate `{name}` has no command | Add `{name}` under ## Gates in project.md, or remove it from ## Required on. |
 | `E_GATE_SUBST` | gate command uses unknown placeholder {token} | Use only `{inbound}` and `{head}` in gate commands. |
 | `E_GATE_FAILED` | gate {name} failed (exit {n}) | Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}-{name}.txt |
+| `E_GATE_TIMEOUT` | gate {name} did not finish within {n}s | Make it terminate (no watch mode, no prompts), or raise its budget under ## Gate timeouts in project.md. Output so far: .conveyor/logs/gates/{role}-{task}-{commit}-{name}.txt |
 | `AUDIT_REQUIRED` | see §5 | see §5 |
 
 ### 4.6 Installation (success path)
@@ -567,8 +579,10 @@ Checked at the start of §6.3, never mid-run:
 | Ceiling | Source | Test | Park reason |
 |---|---|---|---|
 | `max_retries` | config per role (applies to `coder`) | `retry_count > max_retries` | `max-retries` |
-| `max_minutes` | config per role | `now − first dequeued_at for this task_id > max_minutes` | `max-minutes` |
+| `max_minutes` | config per role | `now − first dequeued_at for this task_id > max_minutes`, **and** a deadline on the run itself (§6.9): what is left of the budget, floored at 60 s | `max-minutes` |
 | `max_attempts` | config per role | §6.3 | `max-attempts` |
+
+`max_minutes` is enforced twice over: once before the run, as the table says, and once *during* it. The second is a deadline on the agent process (§6.9), because the pre-flight check alone can never fire for a task whose first run never returns. A run killed by the deadline parks with the same `max-minutes` reason; it is **not** a failed attempt, so `attempt` does not advance and there is no `--resume` retry — the budget it would retry on is already spent.
 
 "First `dequeued_at` for this task_id" is found by scanning `roles/*/inbox/{in_process,completed}/` and `sent/` for the earliest `dequeued_at` with matching `task_id`. Cache it in the board row as `started_at` (§8.1) on first observation to avoid rescanning.
 
@@ -576,7 +590,7 @@ Checked at the start of §6.3, never mid-run:
 
 `conveyor stop` writes `.conveyor/roles/<role>/stop` (empty file). The loop checks for it at the top of each iteration and between attempts, finishes the current agent run if one is in flight, and exits 0, deleting the sentinel. `conveyor start` deletes any stale sentinel before launching.
 
-A loop MUST NOT kill a running agent on stop. `conveyor stop --now` sends `TERM` to the agent, marks the item's `attempt` as failed, and leaves it in `in_process/` for recovery.
+A loop MUST NOT kill a running agent on stop. `conveyor stop --now` sends `TERM` to the agent's **process group**, marks the item's `attempt` as failed, and leaves it in `in_process/` for recovery. The group, not the leader alone: children the agent spawned inherit its stdout, and one of them still holding that pipe keeps the loop's stamper — and so the loop — from finishing.
 
 ### 6.8 Prompt construction
 
@@ -610,6 +624,19 @@ Before launching, the loop verifies `$CONVEYOR_AGENT_BIN` is an executable (a ba
 | a blank line | dropped |
 
 The stamper is its own process, not the loop: a `kill -9` of the loop leaves the agent and the stamper running, and the run still lands in the log (invariant 11).
+
+**The run has a deadline.** The agent is launched with `start_new_session`, so it leads its own process group and the loop can take its children with it. The budget for one run is what is left of the task's `max_minutes` (`max_minutes × 60 − age(started_at)`), floored at **60 s** — without the floor, `max_minutes = 0` would kill every run the instant it started, and §6.6 promises a just-started task one attempt. The floor is the only place a run may outlive the task budget. The operator's number is not second-guessed: `max_minutes = 120` kills a wedged run after two hours, which is slow and is still the stated tolerance.
+
+On expiry: `TERM` to the agent's process group, a grace period, then `KILL` to the same group; then the loop re-checks the outbox **before** parking. An agent that queued a valid handoff and then wedged has done the work, and the kill must never discard it — the outbox stays the only signal. Only an empty outbox parks, with reason `max-minutes` and a detail beginning `killed attempt <n>`. The stamper's own wait is bounded the same way: if it has not seen EOF shortly after the group is gone, it is killed too.
+
+A killed run writes one extra record before the exit record:
+
+```
+{"at":…,"type":"conveyor","event":"killed","reason":"max-minutes","after_s":<n>,
+ "signal":"TERM","escalated":<bool>,"text":"after <n>m<n>s (max-minutes deadline)"}
+```
+
+`text` reads as the predicate of `event`, as it does for `run`, so `conveyor log` renders the pair as `killed after 120m0s (max-minutes deadline)`. `escalated` is true when `TERM` was not enough and `KILL` followed — the difference between an agent that was busy and one that was wedged.
 
 The loop dates its own records the same way. It writes `{"at":…,"type":"conveyor","event":"run","role":…,"task":…,"attempt":<n>,"model":…,"resumed":<bool>,"text":…}` before launching, records the exit code as the last line (`{"at":…,"type":"conveyor","event":"exit","exit":<n>}`), and extracts the session id from the first event that carries one. Exit code is informational only; §6.3's outbox check decides.
 

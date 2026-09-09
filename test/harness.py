@@ -28,6 +28,31 @@ def read(path):
         return f.read()
 
 
+def gone(pid, timeout=10.0):
+    """True once pid is no longer a live process. A zombie counts as gone: the
+    process is dead, and whether its parent has reaped it is not what we assert."""
+    deadline = time.time() + timeout
+    while True:
+        r = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+        state = r.stdout.strip()
+        if not state or state.startswith("Z"):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(0.1)
+
+
+def wait_for(predicate, timeout=20.0):
+    """Poll until predicate() is truthy; returns its value, or None on timeout."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.1)
+    return None
+
+
 class Fixture:
     def __init__(self, coder="max_retries=3 max_minutes=120 max_attempts=3",
                  reviewer="max_minutes=60 max_attempts=2"):

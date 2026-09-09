@@ -1638,9 +1638,13 @@ def cmd_gate(args):
         except gates.GateSubstError as e:
             util.die(f"conveyor gate run: unknown placeholder {e.token}")
         try:
-            gates.run(paths, wt, log_role, task, head, name, expanded)
+            gates.run(paths, wt, log_role, task, head, name, expanded,
+                      timeout=gates.timeout_for(catalog, name, cfg.gate_timeout))
         except gates.GateFailedError as e:
             util.die(f"conveyor gate run: exit {e.exit_code} (see {os.path.relpath(e.log_path, root)})")
+        except gates.GateTimeoutError as e:
+            util.die(f"conveyor gate run: {name} timed out after {e.seconds}s "
+                     f"(see {os.path.relpath(e.log_path, root)})")
         print(f"{name}: ok")
         return
 

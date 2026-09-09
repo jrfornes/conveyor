@@ -32,6 +32,13 @@ role reviewer composer-2.5  max_minutes=60 max_attempts=2
 # A command hook gets CONVEYOR_ROOT/TASK/TASK_ID/COMMIT/BRANCH/BASE in its env; nonzero exit
 # parks the task `done-command`. See bin/hooks/bitbucket-pr for a Bitbucket Cloud example.
 
+# Optional gate budget: how long any one project.md gate may run, in seconds.
+# 0 means unbounded. Override a single gate with a `## Gate timeouts` section in
+# project.md. A gate that runs past its budget is killed (with its children) and
+# the agent gets E_GATE_TIMEOUT, which it can act on within its remaining attempts.
+# [global]
+#   gate_timeout = 900
+
 # Optional intake ceilings. Jira credentials are not in this file — they
 # live in gitignored .conveyor/local/jira.json (mode 600). Set them with
 #   conveyor intake jira --site https://example.atlassian.net \
