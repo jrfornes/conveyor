@@ -191,7 +191,7 @@ export class CockpitComponent {
 
   startWorking(row: InboxItem): void {
     const name = row.task_name && row.task_name !== '-' ? row.task_name : row.id;
-    this.ui.busy.set(true);
+    this.ui.startAction();
     this.api.startTask(name).subscribe({
       next: (r) => {
         this.snack.open(r.message ?? 'Queued', undefined, { duration: 3000 });
@@ -262,7 +262,7 @@ export class CockpitComponent {
   }
 
   mutate(action: string, payload?: unknown): void {
-    this.ui.busy.set(true);
+    this.ui.startAction();
     let req;
     switch (action) {
       case 'delete':

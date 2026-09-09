@@ -124,7 +124,7 @@ export class ImportDialogComponent {
     this.error = '';
     this.loadingLabel = importBusyMessage(source);
     this.ref.disableClose = true;
-    this.ui.busy.set(true);
+    this.ui.startAction();
     this.ui.busyMessage.set(this.loadingLabel);
 
     this.api.importTickets(source, title, body).subscribe({

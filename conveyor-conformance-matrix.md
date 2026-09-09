@@ -51,7 +51,7 @@ the "Decisions" section at the end.
 - [x] **full** — Prompts/scripts/constitution copied into each worktree → `ISO-2`, `CON-2` (`.cursor/rules/conveyor-role.mdc`); `handoff.sh` on the worktree path (IMPLEMENT.md).
 - [x] **full** — Identity from environment, never the agent → `ISO-3`, §1 ("no script accepts identity as an argument"), `inv 7`.
 - [x] **full** — Scratch confined to the worktree by tooling → `ISO-4`, `E_DRAFT_PATH`.
-- [x] **full** — One command sets up from a fresh clone → `conveyor start` (§10).
+- [x] **full** — One command sets up from a fresh clone → `conveyor start` (§10), including each worktree's dependencies when `[global] worktree_setup` is set (§6.3); it re-runs after a merge moves a watched path, so a role never gates against a tree that predates the commit it just merged.
 
 ## 2. Pipeline configuration (manual Part 2)
 

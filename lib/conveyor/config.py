@@ -48,9 +48,13 @@ class Config:
     agent_bin: str = "cursor-agent"
     agent_args: list = field(default_factory=list)
     poll_seconds: float = 2.0
+    gate_timeout: int = 900         # seconds a project gate may run; 0 = unbounded
     agent_version: str = ""
     integration: str = "merge"      # "merge" | "hold" | "command: <cmd>"
     integration_base: str = ""      # optional PR/merge target for command mode
+    worktree_setup: str = ""            # "" = feature off; nothing in the run path changes
+    worktree_setup_paths: list = field(default_factory=list)
+    worktree_setup_timeout: int = 1800  # 0 = unbounded
     inbox: InboxConf = field(default_factory=InboxConf)
 
     def integration_parts(self):
@@ -188,6 +192,15 @@ def load(root):
         cfg.agent_args = shlex.split(glob["agent_args"])
     if "poll_seconds" in glob:
         cfg.poll_seconds = float(glob["poll_seconds"])
+    cfg.gate_timeout = _global_seconds(glob, "gate_timeout", 900)
+    cfg.worktree_setup = glob.get("worktree_setup", "").strip()
+    cfg.worktree_setup_paths = shlex.split(glob.get("worktree_setup_paths", ""))
+    if cfg.worktree_setup_paths and not cfg.worktree_setup:
+        raise ConfigError(
+            "worktree_setup_paths is set but worktree_setup is not, so nothing "
+            "would ever run; repair: add `worktree_setup = <shell command>` under "
+            "[global], or drop worktree_setup_paths")
+    cfg.worktree_setup_timeout = _global_seconds(glob, "worktree_setup_timeout", 1800)
     cfg.agent_version = glob.get("agent_version", "")
     cfg.integration = glob.get("integration", "merge").strip() or "merge"
     integration_parts(cfg.integration)  # validate; raises ConfigError on a bad value
@@ -219,6 +232,18 @@ def integration_parts(value):
         return "command", cmd
     raise ConfigError(
         f"integration must be merge, hold, or 'command: <cmd>'; got {value!r}")
+
+
+def _global_seconds(glob, key, default):
+    """A [global] timeout in seconds, or default when the key is absent. 0 = unbounded."""
+    if key not in glob:
+        return default
+    raw = glob[key].strip()
+    if not re.fullmatch(r"\d+", raw):
+        raise ConfigError(
+            f"{key} must be a non-negative number of seconds (0 = unbounded); "
+            f"repair: set {key} = {default} under [global]")
+    return int(raw)
 
 
 def _inbox_int(inbox, key):

@@ -31,6 +31,7 @@ REPAIR = {
     "E_GATE_UNKNOWN": "Add `{name}` under ## Gates in project.md, or remove it from ## Required on.",
     "E_GATE_SUBST": "Use only `{{inbound}}` and `{{head}}` in gate commands.",
     "E_GATE_FAILED": "Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}-{name}.txt",
+    "E_GATE_TIMEOUT": "Make it terminate (no watch mode, no prompts), or raise its budget under ## Gate timeouts in project.md. Output so far: .conveyor/logs/gates/{role}-{task}-{commit}-{name}.txt",
 }
 PROBLEM = {
     "E_ENV": "CONVEYOR_ROLE or CONVEYOR_WORKTREE not set",
@@ -57,6 +58,7 @@ PROBLEM = {
     "E_GATE_UNKNOWN": "required gate `{name}` has no command",
     "E_GATE_SUBST": "gate command uses unknown placeholder {token}",
     "E_GATE_FAILED": "gate {name} failed (exit {n})",
+    "E_GATE_TIMEOUT": "gate {name} did not finish within {n}s",
 }
 GOOD = "to: reviewer\ntask: demo\nverdict: ready\n"
 
@@ -216,6 +218,18 @@ class Errors(ConveyorTest):
         commit = self.fx.git("rev-parse", "--short=10", "HEAD", cwd=self.wt)
         self.draft()
         self.expect("E_GATE_FAILED", self.fx.handoff("coder"),
+                    n=1, role="coder", task="demo", commit=commit, name="test")
+
+    def test_E_GATE_TIMEOUT(self):
+        with open(os.path.join(self.wt, "project.md"), "w") as f:
+            f.write("# Project\n\n## Test command\n\n```\nsleep 600\n```\n"
+                    "\n## Gate timeouts\n\ntest: 1\n")
+        self.fx.git("add", "project.md", cwd=self.wt)
+        self.fx.git("commit", "-q", "--no-verify", "-m", "Hanging test command\n\nBy coder.",
+                    cwd=self.wt)
+        commit = self.fx.git("rev-parse", "--short=10", "HEAD", cwd=self.wt)
+        self.draft()
+        self.expect("E_GATE_TIMEOUT", self.fx.handoff("coder"),
                     n=1, role="coder", task="demo", commit=commit, name="test")
 
     def test_E_GATE_PARSE(self):

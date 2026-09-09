@@ -5,6 +5,7 @@ Usage: handoff.sh <draft-path>
 Exit 0: queued. Exit 2: AUDIT_REQUIRED. Exit 1: any E_* error."""
 import hashlib
 import os
+import signal
 import subprocess
 import sys
 
@@ -61,6 +62,10 @@ ERRORS = {
                      "Use only `{{inbound}}` and `{{head}}` in gate commands."),
     "E_GATE_FAILED": ("gate {name} failed (exit {n})",
                       "Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}-{name}.txt"),
+    "E_GATE_TIMEOUT": ("gate {name} did not finish within {n}s",
+                       "Make it terminate (no watch mode, no prompts), or raise its budget under "
+                       "## Gate timeouts in project.md. Output so far: "
+                       ".conveyor/logs/gates/{role}-{task}-{commit}-{name}.txt"),
 }
 
 AUDIT_TEXT = """AUDIT_REQUIRED: handoff for {task} not queued (audit {n})
@@ -68,6 +73,17 @@ AUDIT_TEXT = """AUDIT_REQUIRED: handoff for {task} not queued (audit {n})
   For every requirement in the task, find the commit, test, or output that proves it is met.
   If anything is missing, fix it, commit, and run handoff.sh again with the new commit.
   If everything is proven, run exactly the same command again to queue this handoff."""
+
+
+def on_term(*_):
+    """Take the gate in flight with us.
+
+    A gate runs in its own session so a `shell=True` timeout can kill the whole
+    command, which also means the loop's process-group kill of the agent does not
+    reach it. Without this, a killed run leaves the gate running forever.
+    """
+    gates.kill_running()
+    sys.exit(143)
 
 
 def fail(code, **kw):
@@ -83,6 +99,7 @@ def inside(path, parent):
 
 
 def main():
+    signal.signal(signal.SIGTERM, on_term)
     role = os.environ.get("CONVEYOR_ROLE")
     wt = os.environ.get("CONVEYOR_WORKTREE")
     if not role or not wt or not inside(os.getcwd(), wt) or len(sys.argv) != 2:
@@ -182,9 +199,12 @@ def run_project_gates(paths, wt, cfg, role, task, verdict, commit, inbound_commi
         except gates.GateSubstError as e:
             fail("E_GATE_SUBST", token=e.token)
         try:
-            gates.run(paths, wt, role, task, commit, name, expanded)
+            gates.run(paths, wt, role, task, commit, name, expanded,
+                      timeout=gates.timeout_for(catalog, name, cfg.gate_timeout))
         except gates.GateFailedError as e:
             fail("E_GATE_FAILED", n=e.exit_code, role=role, task=task, commit=commit, name=name)
+        except gates.GateTimeoutError as e:
+            fail("E_GATE_TIMEOUT", n=e.seconds, role=role, task=task, commit=commit, name=name)
 
 
 def gate(paths, rp, role, task, to, verdict, commit, body, intake=False):

@@ -106,6 +106,7 @@ seq.lock/         mkdir-style lock for seq
 audit_pending/
   <task-name>.fp  see §5
 loop.lock/        mkdir-style lock; contains pid file
+setup.stamp       present only with [global] worktree_setup; see §6.3
 ```
 
 `operator` has only `outbox/`, `outbox/tmp/`, `sent/`, `seq`, `seq.lock/`. It has no inbox.
@@ -121,6 +122,7 @@ loop.lock/        mkdir-style lock; contains pid file
 | `<role>/inbox/in_process` | `<role>`'s loop | `<role>`'s loop |
 | `<role>/inbox/completed` | `<role>`'s loop | nobody |
 | `<role>/audit_pending` | `handoff.sh` | `handoff.sh` |
+| `<role>/setup.stamp` | whoever ran setup — `conveyor start`/`setup` for an idle role, otherwise `<role>`'s own loop | nobody |
 | `logs/gates/` | `handoff.sh` | nobody |
 | `logs/<role>/` | `<role>`'s loop and its stamper (§6.9) | nobody |
 | `needs-human/` | any loop | `conveyor resume` |
@@ -366,7 +368,18 @@ After §4.4 and before the audit gate (§5), `handoff.sh` reads `project.md` fro
 1. **`## Test command` only (legacy):** Under the heading (until the next `## ` line), take the first fenced block, strip HTML comments, and use the first remaining non-empty line as the command for implicit gate `test`. Extra lines in the fence are ignored. Empty or comment-only fence skips all gates.
 2. **`## Gates` + `## Required on`:** Under `## Gates`, each gate is a name matching `^[a-z][a-z0-9:-]*$` followed by either a one-line `name: argv` or a fenced block (same extraction rules as above). Under `## Required on`, each non-empty line is `<role> ready|pass: name, name, …`. Roles not on the current belt are ignored at `conveyor start` validation but bindings are stored for other workflows.
 
-`findings` and `ticket-reviewer` skip all project gates. For other `(role, verdict)` pairs, run the listed gate commands in order in the worktree (`shell=True`, no timeout). Substitutions before exec: `{inbound}` = inbound handoff `commit` (10-hex); `{head}` = worktree HEAD (10-hex). Any other `{…}` is `E_GATE_SUBST`. A required name with no command is `E_GATE_UNKNOWN`. Malformed catalog or both section forms present is `E_GATE_PARSE`. Exit 0 on every command continues to the audit gate. Nonzero is `E_GATE_FAILED`: stdout, stderr, exit status, and argv are written to `.conveyor/logs/gates/<role>-<task>-<commit>-<name>.txt`. The script MUST NOT write `audit_pending`, increment `audit_count`, or queue on any gate error.
+`findings` and `ticket-reviewer` skip all project gates. For other `(role, verdict)` pairs, run the listed gate commands in order in the worktree (`shell=True`, each in its own process group, under the budget below). Substitutions before exec: `{inbound}` = inbound handoff `commit` (10-hex); `{head}` = worktree HEAD (10-hex). Any other `{…}` is `E_GATE_SUBST`. A required name with no command is `E_GATE_UNKNOWN`. Malformed catalog or both section forms present is `E_GATE_PARSE`. Exit 0 on every command continues to the audit gate. Nonzero is `E_GATE_FAILED`: stdout, stderr, exit status, and argv are written to `.conveyor/logs/gates/<role>-<task>-<commit>-<name>.txt`. The script MUST NOT write `audit_pending`, increment `audit_count`, or queue on any gate error.
+
+**Gate timeouts.** A gate that never returns hangs the agent, which hangs the loop, below the loop's own ceilings. Every gate runs under a budget in seconds: `[global] gate_timeout` in `conveyor.conf` (default **900**; `0` = unbounded), overridden per gate by an optional `## Gate timeouts` section in `project.md`, parsed like `## Required on` — one `<name>: <seconds>` per line, names must exist under `## Gates` (or be the implicit `test`), values must be non-negative integers, anything else is `E_GATE_PARSE`:
+
+```markdown
+## Gate timeouts
+
+build: 1800
+lint: 300
+```
+
+The gate is launched with `start_new_session` so it leads its own process group; `shell=True` means a timeout that killed only the shell would orphan the command that is actually stuck. On expiry the group gets `TERM`, then `KILL` after a grace period, and the failure is `E_GATE_TIMEOUT` — a normal validator refusal the agent can read and act on within its remaining attempts, not an opaque death. A timed-out gate writes the same log as a failed one, at the same path, with the partial output it had produced and `exit: timeout` on the first line. Because the gate's group is its own, it would survive a kill of the agent's group: `handoff.sh` installs a `SIGTERM` handler that kills the gate in flight before exiting.
 
 `conveyor start` parses the **main checkout** `project.md` and refuses if the catalog does not parse or any required-on name for a role on the current belt is missing from `## Gates`. It does not exec commands.
 
@@ -408,6 +421,7 @@ Codes and messages are part of the interface; `constitution/handoffs.md` quotes 
 | `E_GATE_UNKNOWN` | required gate `{name}` has no command | Add `{name}` under ## Gates in project.md, or remove it from ## Required on. |
 | `E_GATE_SUBST` | gate command uses unknown placeholder {token} | Use only `{inbound}` and `{head}` in gate commands. |
 | `E_GATE_FAILED` | gate {name} failed (exit {n}) | Fix the failures, commit, and retry. Output: .conveyor/logs/gates/{role}-{task}-{commit}-{name}.txt |
+| `E_GATE_TIMEOUT` | gate {name} did not finish within {n}s | Make it terminate (no watch mode, no prompts), or raise its budget under ## Gate timeouts in project.md. Output so far: .conveyor/logs/gates/{role}-{task}-{commit}-{name}.txt |
 | `AUDIT_REQUIRED` | see §5 | see §5 |
 
 ### 4.6 Installation (success path)
@@ -510,7 +524,9 @@ forever:
 ### 6.3 Processing an item
 
 ```
+blobs_before = oid of each worktree_setup_paths entry at HEAD   (only when worktree_setup is set)
 merge.sh <commit>                      (§7); on refusal → park(reason: merge-conflict | untracked-collision)
+worktree setup (below); on failure → park(reason: setup-failed)
 check ceilings (§6.6); if exceeded → park
 attempt = header attempt (1 on first pass; recovery re-reads it)
 loop:
@@ -533,6 +549,21 @@ loop:
 ```
 
 The loop never inspects the agent's text output to decide anything. Success is "exactly one valid file appeared in outbox", nothing else. A file in `outbox/` that fails to parse is moved to `failed/` and counts as zero.
+
+**Worktree setup.** With `[global] worktree_setup` unset the step does not exist and nothing in this section changes. When it is set:
+
+```
+stamp = sha256( "<path> <blob oid at HEAD>" per worktree_setup_paths entry, in configured order,
+                then "command <worktree_setup>" — one per line )
+```
+
+A path not present at HEAD hashes as `-`; a directory hashes as its tree oid. The oids come from `git rev-parse --verify --quiet HEAD:<path>` in the worktree, never from reading files, and never from mtimes — a merge rewrites mtimes constantly and none of it is evidence. The command is part of the hash on purpose, so changing it re-runs setup everywhere.
+
+The loop compares that stamp with `roles/<role>/setup.stamp`. Missing stamp = reason `create`; different stamp = reason `changed`; equal = the step is skipped. On a run it executes `worktree_setup` with `shell=True` in its own process group, cwd = the worktree, bounded by `worktree_setup_timeout` seconds (`0` = unbounded, TERM then KILL on the group), with `CONVEYOR_ROOT`, `CONVEYOR_ROLE`, `CONVEYOR_WORKTREE`, `CONVEYOR_REASON` (`create` | `changed`) and `CONVEYOR_COMMIT` (the merged commit; empty outside a loop) in the environment. The output goes to `logs/<role>/setup.log` in the §7.3 shape (`exit:` — the code, or the word `timeout` — `command:`, `--- stdout ---`, `--- stderr ---`).
+
+`setup.stamp` is written **only** after exit 0: a failed install must not look done. A nonzero exit or a timeout parks the item `setup-failed` (§6.10) before any ceiling check and before any agent runs — a tree whose dependencies predate the commit it just merged produces findings about the environment instead of the task, and for a reviewer that is a finding against correct work. The setup run happens inside the item's `max_minutes` budget: an install that eats the whole budget is a real problem, visible as `max-minutes`.
+
+`conveyor start` runs the same step per role before launching any loop, dying instead of parking, and skips (with a warning) any role whose loop lock holds a live pid — installing into a tree an agent is working in corrupts the run, and skipping keeps this file's single writer true by construction.
 
 ### 6.4 Attempts vs. retries
 
@@ -567,8 +598,11 @@ Checked at the start of §6.3, never mid-run:
 | Ceiling | Source | Test | Park reason |
 |---|---|---|---|
 | `max_retries` | config per role (applies to `coder`) | `retry_count > max_retries` | `max-retries` |
-| `max_minutes` | config per role | `now − first dequeued_at for this task_id > max_minutes` | `max-minutes` |
+| `max_minutes` | config per role | `now − first dequeued_at for this task_id > max_minutes`, **and** a deadline on the run itself (§6.9): what is left of the budget, floored at 60 s | `max-minutes` |
 | `max_attempts` | config per role | §6.3 | `max-attempts` |
+| `worktree_setup_timeout` | `[global]`, default 1800 s (`0` = unbounded) | §6.3 | `setup-failed` |
+
+`max_minutes` is enforced twice over: once before the run, as the table says, and once *during* it. The second is a deadline on the agent process (§6.9), because the pre-flight check alone can never fire for a task whose first run never returns. A run killed by the deadline parks with the same `max-minutes` reason; it is **not** a failed attempt, so `attempt` does not advance and there is no `--resume` retry — the budget it would retry on is already spent.
 
 "First `dequeued_at` for this task_id" is found by scanning `roles/*/inbox/{in_process,completed}/` and `sent/` for the earliest `dequeued_at` with matching `task_id`. Cache it in the board row as `started_at` (§8.1) on first observation to avoid rescanning.
 
@@ -576,7 +610,7 @@ Checked at the start of §6.3, never mid-run:
 
 `conveyor stop` writes `.conveyor/roles/<role>/stop` (empty file). The loop checks for it at the top of each iteration and between attempts, finishes the current agent run if one is in flight, and exits 0, deleting the sentinel. `conveyor start` deletes any stale sentinel before launching.
 
-A loop MUST NOT kill a running agent on stop. `conveyor stop --now` sends `TERM` to the agent, marks the item's `attempt` as failed, and leaves it in `in_process/` for recovery.
+A loop MUST NOT kill a running agent on stop. `conveyor stop --now` sends `TERM` to the agent's **process group**, marks the item's `attempt` as failed, and leaves it in `in_process/` for recovery. The group, not the leader alone: children the agent spawned inherit its stdout, and one of them still holding that pipe keeps the loop's stamper — and so the loop — from finishing.
 
 ### 6.8 Prompt construction
 
@@ -611,6 +645,19 @@ Before launching, the loop verifies `$CONVEYOR_AGENT_BIN` is an executable (a ba
 
 The stamper is its own process, not the loop: a `kill -9` of the loop leaves the agent and the stamper running, and the run still lands in the log (invariant 11).
 
+**The run has a deadline.** The agent is launched with `start_new_session`, so it leads its own process group and the loop can take its children with it. The budget for one run is what is left of the task's `max_minutes` (`max_minutes × 60 − age(started_at)`), floored at **60 s** — without the floor, `max_minutes = 0` would kill every run the instant it started, and §6.6 promises a just-started task one attempt. The floor is the only place a run may outlive the task budget. The operator's number is not second-guessed: `max_minutes = 120` kills a wedged run after two hours, which is slow and is still the stated tolerance.
+
+On expiry: `TERM` to the agent's process group, a grace period, then `KILL` to the same group; then the loop re-checks the outbox **before** parking. An agent that queued a valid handoff and then wedged has done the work, and the kill must never discard it — the outbox stays the only signal. Only an empty outbox parks, with reason `max-minutes` and a detail beginning `killed attempt <n>`. The stamper's own wait is bounded the same way: if it has not seen EOF shortly after the group is gone, it is killed too.
+
+A killed run writes one extra record before the exit record:
+
+```
+{"at":…,"type":"conveyor","event":"killed","reason":"max-minutes","after_s":<n>,
+ "signal":"TERM","escalated":<bool>,"text":"after <n>m<n>s (max-minutes deadline)"}
+```
+
+`text` reads as the predicate of `event`, as it does for `run`, so `conveyor log` renders the pair as `killed after 120m0s (max-minutes deadline)`. `escalated` is true when `TERM` was not enough and `KILL` followed — the difference between an agent that was busy and one that was wedged.
+
 The loop dates its own records the same way. It writes `{"at":…,"type":"conveyor","event":"run","role":…,"task":…,"attempt":<n>,"model":…,"resumed":<bool>,"text":…}` before launching, records the exit code as the last line (`{"at":…,"type":"conveyor","event":"exit","exit":<n>}`), and extracts the session id from the first event that carries one. Exit code is informational only; §6.3's outbox check decides.
 
 ### 6.10 Parking
@@ -622,7 +669,9 @@ write needs-human/<task>/reason:   <reason>\n<one line of detail>\n<timestamp>
 board: lane=needs-human, updated_at
 ```
 
-`conveyor resume <task> [--to <role>]` (default `--to` = the item's `to`, or `coder` for a coder item) renames `item.handoff` into `roles/<role>/inbox/new/` under its original filename, resets `attempt` to 1 in the header, and sets the board lane. `retry_count`, `audit_count`, and `task_id` are never reset. The operator is expected to have fixed something first (edited the task file and committed on main, or fixed the conflict); Conveyor does not check.
+Park reasons: `max-retries`, `max-minutes`, `max-attempts`, `merge-conflict`, `untracked-collision`, `multiple-handoffs`, `no-rules`, `no-agent`, `no-task-file`, `setup-failed`, `done-command`.
+
+`conveyor resume <task> [--to <role>]` (default `--to` = the item's `to`, or `coder` for a coder item) renames `item.handoff` into `roles/<role>/inbox/new/` under its original filename, resets `attempt` to 1 in the header, and sets the board lane. `retry_count`, `audit_count`, and `task_id` are never reset. The operator is expected to have fixed something first (edited the task file and committed on main, or fixed the conflict); Conveyor does not check. Resume does not touch the worktree, so it does not re-run setup either — the next merge re-checks the stamp, and a `setup-failed` park left no stamp to match.
 
 ### 6.11 The loop log
 
@@ -630,6 +679,8 @@ Everything a loop prints — the lines below, plus §6.5 delivery failures and �
 
 ```
 <ts>  <task>: processing <id> from <from> (<verdict>, <commit>)
+<ts>  <task>: setup (create | changed[: <path>, ...]) …          (§6.3, only when it runs)
+<ts>  <task>: setup ok, <duration> | setup exited <rc> | setup timed out after <n>s
 <ts>  <task>: attempt <n> running <model>[ (resume)]
 <ts>  <task>: attempt <n> agent exited <rc>
 <ts>  <task>: merged | forwarded
@@ -755,7 +806,8 @@ These are the properties tests assert. Each is stated so that violating it is de
 
 | Command | Effect in protocol terms |
 |---|---|
-| `conveyor start` | Create worktrees, write rules files, install hook, create queue dirs, delete stale `stop` sentinels, launch one loop per role. |
+| `conveyor start [--no-setup] [--no-smoke]` | Create worktrees, write rules files, install hook, create queue dirs, delete stale `stop` sentinels, run `worktree_setup` where the stamp does not match (§6.3; `--no-setup` skips it and writes no stamp), launch one loop per role. Dies before launching anything when setup fails. |
+| `conveyor setup [--role <role>] [--force]` | Run §6.3's worktree setup outside `start`, in belt order. `--force` ignores the stamp; a role whose loop is live is warned about and skipped. Refused when `[global] worktree_setup` is unset. |
 | `conveyor stop [--now]` | §6.7. |
 | `conveyor uninstall [--yes] [--bundle]` | Stop live loops if needed; remove worktrees, local `conveyor-*` branches, `.conveyor/`, and the byline hook when it matches the shipped copy. `--bundle` also removes init files (`constitution/`, `roles/`, `conveyor.conf`, `tasks/`, etc.). Refused in the conveyor source checkout. `--yes` required. |
 | `conveyor task <name> [< text]` | Validate name; write and commit `tasks/<name>.md` on main (`By operator.`); append board row (lane `coder`, counters 0); write an operator handoff `to: coder`, `verdict: ready`, `commit` = main HEAD, into `roles/operator/outbox/`; run the operator delivery sweep (§6.5) immediately. |

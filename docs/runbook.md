@@ -29,11 +29,28 @@ cursor-agent --list-models
 2. Edit `project.md`: test command, language, anything the reviewer should treat as a requirement.
 3. Edit `conveyor.conf` and fill in the two model names.
 4. Make sure the project's test command passes on a clean checkout. On `ready` and `pass`, `handoff.sh` runs the required gates from the worktree's `project.md` (legacy `## Test command` fence or `## Gates` + `## Required on`). An empty fence or command is skipped. A nonzero exit is `E_GATE_FAILED`; `cat .conveyor/logs/gates/<role>-<task>-<commit>-<name>.txt` for the output. Run a gate manually with `conveyor gate run <name>` (add `--role <role>` to use that worktree and inbound commit).
-5. `conveyor start`. It will:
+5. **If the project's tests need installed dependencies** (`node_modules/`, a virtualenv, a vendor directory), set `worktree_setup` under `[global]`. Each role gets its own worktree, and worktrees do not share installed dependencies, so without this the first gate in a fresh tree fails on a missing module rather than on the task:
+
+   ```
+   [global]
+   worktree_setup         = pnpm install --frozen-lockfile
+   worktree_setup_paths   = pnpm-lock.yaml package.json
+   worktree_setup_timeout = 1800     # optional, seconds; 0 = unbounded
+   ```
+
+   The command is opaque — Conveyor never detects a package manager. It runs with cwd = the worktree and `CONVEYOR_ROOT` / `CONVEYOR_ROLE` / `CONVEYOR_WORKTREE` / `CONVEYOR_REASON` (`create` | `changed`) / `CONVEYOR_COMMIT` in its environment, and one command serves the whole belt (branch on `$CONVEYOR_ROLE` to skip roles that do not need it). See `bin/hooks/npm-worktree-setup` for a worked example.
+
+   It runs at two moments: when a worktree is new or its dependency inputs changed at `conveyor start`, and **in the role loop right after a merge that moved a watched path**. The second is the one that matters: without it the reviewer merges the coder's new lockfile into a tree whose `node_modules` predates it, its gate fails on a missing module, and that becomes a finding against correct work.
+
+   Whatever the command creates must be ignored by the `.gitignore` **committed on the role branches** — `handoff.sh` refuses a dirty tree (`E_DIRTY`) and no agent can fix that from inside. `conveyor start` warns, loudly, when a tree is dirty after setup; do not ignore it. Conveyor only manages its own four entries, so `node_modules/`, `.angular/`, `.nx/` and friends are yours to add and commit.
+
+   Re-run it by hand with `conveyor setup [--role <role>] [--force]`; skip it for one start with `conveyor start --no-setup`. A start where nothing changed says nothing about setup at all.
+6. `conveyor start`. It will:
    - install the byline `commit-msg` hook
    - commit any missing `.gitignore` entries (`.worktrees/`, `.conveyor/`, `.cursor/rules/conveyor-role.mdc`, `tmp/`) so role worktrees ignore runtime files — `init` only appends to the working copy
    - create one `.worktrees/<role>` per configured role on branch `conveyor-<role>` (e.g. `.worktrees/coder`, `.worktrees/reviewer` for the default Review belt)
    - write `.cursor/rules/conveyor-role.mdc` into each (constitution + role, concatenated)
+   - run `worktree_setup` in any tree that is new or whose watched paths moved (step 5), and stop before launching a single loop if it fails
    - copy assigned skill trees from `roles/<role>.skills` into each worktree at the same relative path under `.agents/skills/<name>/` or `.cursor/skills/<name>/` (repo root; `.agents/skills` wins when both exist)
    - create `.conveyor/` queue directories and `board.tsv`
    - run a smoke test (`cursor-agent -p "reply with the word ok"` in each worktree) and check the rules file loaded
@@ -49,6 +66,7 @@ cursor-agent --list-models
 | See what a loop did and when | `tail -f .conveyor/logs/coder/loop.log` — one dated line per item, attempt, and outcome |
 | See what a role produced | `git log conveyor-<role>` — every commit ends `By <role>.` |
 | Read a finished task | it's merged on `main`; `git log main` |
+| Re-install a worktree's dependencies | `conveyor setup [--role <role>] [--force]` — after fixing a lockfile by hand, or when one tree's install went wrong (stop the loop first: a live loop's tree is skipped, with a warning) |
 | Unstick a parked task | read `.conveyor/needs-human/<task>/reason`, fix the cause, `conveyor resume <task>` |
 | Stop cleanly | `conveyor stop` (waits for in-flight agent runs) |
 | Stop now | `conveyor stop --now` (kills agents; items stay in `in_process/` and resume on next start) |
@@ -131,6 +149,18 @@ show a blank clock instead.
 `loop.log` in the same directory is the loop's own timeline (item picked up, attempt started, agent
 exit code, `forwarded`/`merged`, parks), one dated line each.
 
+A run that outlived its `max_minutes` was killed, and says so in both files:
+
+```
+16:41:07 [conveyor] killed after 120m0s (max-minutes deadline)
+16:41:17 [conveyor] exit -15
+```
+
+`escalated: true` in that record means `TERM` was not enough and the run had to be `KILL`ed — the
+agent, or something it spawned, was wedged rather than merely busy. That is the first thing to look at before deciding the ceiling is too
+tight. If the agent had already handed off before it wedged, nothing parks: the outbox is the only
+signal, and the item is forwarded as usual.
+
 ## 7. Recovery
 
 - **Machine rebooted / loops killed:** `conveyor start`. Anything in `in_process/` resumes; anything in `outbox/` is delivered; nothing is duplicated.
@@ -138,7 +168,10 @@ exit code, `forwarded`/`merged`, parks), one dated line each.
 - **Merge conflict between roles:** parked with reason `merge-conflict` when the receiving role could not merge the inbound commit into `conveyor-<role>`. The loop aborts the merge, so that worktree looks clean — nothing is left conflicted to inspect. Reproduce it in `.worktrees/<role>` with `git merge --no-commit --no-ff <commit>` (the commit is on the second line of `.conveyor/needs-human/<task>/reason`), then resolve it as a real merge with `CONVEYOR_ROLE=<role>` set so the merge commit is signed `By <role>.`, and `conveyor resume <task>`.
 - **Merge conflict on `pass`:** parked with reason `merge-conflict`. Resolve on `main` by hand (commit gets `By operator.`), then `conveyor resume <task>`.
 - **Two files in `in_process/`:** the loop refuses to start and says so. Move one back to `new/` by hand; this only happens after manual edits.
+- **`setup-failed`:** the `worktree_setup` command exited nonzero (or hit `worktree_setup_timeout`) after a role's loop merged an inbound commit, so the tree's dependencies do not match the lockfile that just landed. Nothing ran an agent — a stale tree would have produced findings about the environment instead of the task. Read `.conveyor/logs/<role>/setup.log` (its first line is `exit: <code>` or `exit: timeout`), fix whatever it names — a registry outage, a lockfile that does not install, a timeout too short for a cold install — then `conveyor resume <task>`. The stamp is written only on exit 0, so the resumed item re-runs setup rather than trusting a half-installed tree.
 - **Agent keeps failing to hand off:** read the log; usually a validator error it did not follow. After `max_attempts` it parks. Fix the prompt or the task, `conveyor resume`.
+- **`max-minutes`:** the task ran past its budget. Two ways in, and the second line of the `reason` file says which: `task started <ts>, …` means the ceiling was already spent when the item was picked up; `killed attempt <n> after <n>m<n>s, …` means the run itself was killed at its deadline. A killed run is not a failed attempt, so `attempt` has not advanced — raise `max_minutes` in `conveyor.conf` if the work is genuinely that long, then `conveyor resume <task>`. Counters are never reset, so an unchanged ceiling parks again on the next run.
+- **`E_GATE_TIMEOUT` in the log:** a project gate did not finish within its budget (`[global] gate_timeout`, default 900 s, or its own line under `## Gate timeouts` in `project.md`). The agent sees this as an ordinary validator refusal and can retry within `max_attempts`. Reproduce it with `conveyor gate run <name> --role <role>`, which honours the same budget; the partial output is in `.conveyor/logs/gates/`. Usually the gate is in watch mode or waiting on a prompt.
 - **Wipe and restart:** `conveyor stop --now && conveyor uninstall --yes`. Sequence numbers reset; `sent/` history is gone. Add `--bundle` for a full scratch reset (also removes `constitution/`, `roles/`, `conveyor.conf`, `tasks/`, and the Conveyor `.gitignore` entries). Does not rewrite history on `main`.
 
 ## 8. Testing without Cursor

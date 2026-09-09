@@ -6,13 +6,14 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ConveyorApiService } from '../services/conveyor-api.service';
-import { UiStateService } from '../services/ui-state.service';
+import { FailureLike, UiStateService, errorMessage } from '../services/ui-state.service';
 import { RoleAvatar, WorkflowDetail, WorkflowEdit, WorkflowState } from '../models';
 import { BeltDiagramComponent } from './belt-diagram.component';
 import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
 import {
   WorkflowEditDialogComponent,
   WorkflowEditData,
+  WORKFLOW_EDIT_DIALOG_OPTIONS,
 } from '../dialogs/workflow-edit-dialog.component';
 
 @Component({
@@ -198,7 +199,7 @@ export class WorkflowDetailComponent implements OnInit {
         this.wf = d;
         this.error = '';
       },
-      error: (e) => (this.error = e?.error?.error ?? e.message ?? 'Failed to load workflow'),
+      error: (e) => (this.error = this.inline(e, 'Failed to load workflow')),
     });
   }
 
@@ -251,7 +252,7 @@ export class WorkflowDetailComponent implements OnInit {
     const w = this.wf;
     this.dialog
       .open(WorkflowEditDialogComponent, {
-        width: '720px',
+        ...WORKFLOW_EDIT_DIALOG_OPTIONS,
         data: this.editorData(`Edit ${w.name}`, {
           name: w.name,
           description: w.description,
@@ -271,7 +272,7 @@ export class WorkflowDetailComponent implements OnInit {
     const w = this.wf;
     this.dialog
       .open(WorkflowEditDialogComponent, {
-        width: '720px',
+        ...WORKFLOW_EDIT_DIALOG_OPTIONS,
         data: this.editorData('Duplicate workflow', {
           name: `${w.name} copy`,
           description: w.description,
@@ -291,7 +292,7 @@ export class WorkflowDetailComponent implements OnInit {
           },
           error: (e) => {
             this.busy = false;
-            this.error = e?.error?.error ?? e.message ?? 'Duplicate failed';
+            this.error = this.inline(e, 'Duplicate failed');
           },
         });
       });
@@ -354,8 +355,14 @@ export class WorkflowDetailComponent implements OnInit {
       },
       error: (e) => {
         this.busy = false;
-        this.error = e?.error?.error ?? e.message ?? 'Request failed';
+        this.error = this.inline(e, 'Request failed');
       },
     });
+  }
+
+  /** Show the failure inline and record it in the shared error history. */
+  private inline(e: FailureLike, fallback: string): string {
+    this.ui.note(e, fallback);
+    return errorMessage(e, fallback);
   }
 }
