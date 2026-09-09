@@ -4,17 +4,29 @@ import {
   ElementRef,
   Input,
   OnChanges,
+  OnDestroy,
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { forkJoin } from 'rxjs';
+import { Subscription, catchError, forkJoin, interval, of, startWith, switchMap } from 'rxjs';
 import { ConveyorApiService } from '../services/conveyor-api.service';
 import { ConveyorTask, HandoffSummary, LogEvent, WorkEntry } from '../models';
 import { WorkQueueComponent } from '../work-queue/work-queue.component';
 
 const QUEUE_DIRS = ['new', 'in_process', 'sent'] as const;
+
+/** How often the open log and queues re-read, matching the board's state poll. */
+export const REFRESH_MS = 2000;
+
+/** Distance from the last line that still counts as the end, in pixels. */
+const END_SLOP = 16;
+
+/** Is the log view parked at its last line? Fractional heights need the slop. */
+export function atEnd(scrollTop: number, clientHeight: number, scrollHeight: number): boolean {
+  return scrollHeight - scrollTop - clientHeight <= END_SLOP;
+}
 
 interface MdBlock {
   text: string;
@@ -90,8 +102,11 @@ function renderTask(text: string): MdBlock[] {
               @if (peek; as p) {
                 <span class="peek"> · {{ p }}</span>
               }
+              <span class="live">{{ follow ? ' · live' : ' · live · scroll to the end to follow' }}</span>
             </div>
-            <pre #logPre class="mono log">{{ formatLog() }}</pre>
+            <pre #logPre class="mono log" (scroll)="onLogScroll()">{{ formatLog() }}</pre>
+          } @else if (logRole) {
+            <p class="muted">No log yet for {{ logRole }}</p>
           } @else {
             <p class="muted">Click a role in the work queue to view agent logs</p>
           }
@@ -123,6 +138,7 @@ function renderTask(text: string): MdBlock[] {
     .log { max-height: 40vh; }
     .log-meta { font-size: 12px; opacity: 0.7; }
     .peek { font-family: ui-monospace, monospace; }
+    .live { opacity: 0.8; }
     .meta {
       display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
       font-size: 11px; opacity: 0.75; padding: 4px 0;
@@ -140,7 +156,7 @@ function renderTask(text: string): MdBlock[] {
     mat-tab-group { flex: 1; min-height: 0; overflow: hidden; }
   `,
 })
-export class DetailRailComponent implements OnChanges, AfterViewChecked {
+export class DetailRailComponent implements OnChanges, AfterViewChecked, OnDestroy {
   @Input() work: WorkEntry[] = [];
   @Input() selectedTask: string | null = null;
   /** Board row for selectedTask, for the meta line. */
@@ -157,7 +173,10 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked {
   loadingQueues = false;
   queueSections: { label: string; items: HandoffSummary[] }[] = [];
   taskBlocks: MdBlock[] = [];
+  /** Tail the log as it grows; off once the operator scrolls back to read. */
+  follow = true;
   private scrolledFor = '';
+  private poll?: Subscription;
 
   constructor(private api: ConveyorApiService) {}
 
@@ -167,11 +186,61 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked {
     }
   }
 
+  ngOnDestroy(): void {
+    this.poll?.unsubscribe();
+  }
+
   onSelectRole(role: string): void {
     this.logRole = role;
     this.tabIndex = 1;
-    this.loadLog(role, this.selectedTask ?? undefined);
-    this.loadQueues(role);
+    this.follow = true;
+    this.watchRole(role);
+  }
+
+  /**
+   * Show `role`'s log and queues, then re-read them every REFRESH_MS. The log
+   * file grows for as long as the agent runs, so one read is stale by the time
+   * it renders; without this the operator re-clicks the role to see anything
+   * new.
+   */
+  private watchRole(role: string): void {
+    this.poll?.unsubscribe();
+    this.loadingLog = true;
+    this.loadingQueues = true;
+    this.poll = interval(REFRESH_MS)
+      .pipe(
+        startWith(0),
+        switchMap(() =>
+          forkJoin({
+            log: this.api.logs(role, this.selectedTask ?? undefined),
+            queues: forkJoin(QUEUE_DIRS.map((dir) => this.api.handoffs(role, dir))),
+          }).pipe(catchError(() => of(null))),
+        ),
+      )
+      .subscribe((r) => {
+        // A refresh that fails keeps the last good read on screen — the next
+        // tick is REFRESH_MS away. Only a first read has nothing to keep.
+        if (!r) {
+          if (this.loadingLog) this.clearRole();
+          return;
+        }
+        this.logFile = r.log.filename;
+        this.logEvents = r.log.events;
+        this.queueSections = QUEUE_DIRS.map((dir, i) => ({
+          label: dir.replace('_', ' '),
+          items: r.queues[i],
+        }));
+        this.loadingLog = false;
+        this.loadingQueues = false;
+      });
+  }
+
+  private clearRole(): void {
+    this.logFile = null;
+    this.logEvents = [];
+    this.queueSections = [];
+    this.loadingLog = false;
+    this.loadingQueues = false;
   }
 
   loadTask(name: string): void {
@@ -186,41 +255,6 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked {
         this.taskText = '';
         this.taskBlocks = [];
         this.loadingTask = false;
-      },
-    });
-  }
-
-  loadLog(role: string, task?: string): void {
-    this.loadingLog = true;
-    this.api.logs(role, task).subscribe({
-      next: (r) => {
-        this.logFile = r.filename;
-        this.logEvents = r.events;
-        this.loadingLog = false;
-      },
-      error: () => {
-        this.logFile = null;
-        this.logEvents = [];
-        this.loadingLog = false;
-      },
-    });
-  }
-
-  loadQueues(role: string): void {
-    this.loadingQueues = true;
-    forkJoin(
-      QUEUE_DIRS.map((dir) => this.api.handoffs(role, dir)),
-    ).subscribe({
-      next: (results) => {
-        this.queueSections = QUEUE_DIRS.map((dir, i) => ({
-          label: dir.replace('_', ' '),
-          items: results[i],
-        }));
-        this.loadingQueues = false;
-      },
-      error: () => {
-        this.queueSections = [];
-        this.loadingQueues = false;
       },
     });
   }
@@ -240,7 +274,13 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked {
     const key = `${this.logRole}/${this.logFile}/${this.logEvents.length}`;
     if (key === this.scrolledFor) return;
     this.scrolledFor = key;
-    el.scrollTop = el.scrollHeight;
+    if (this.follow) el.scrollTop = el.scrollHeight;
+  }
+
+  /** Scrolling away from the end stops the tail; scrolling back resumes it. */
+  onLogScroll(): void {
+    const el = this.logPre?.nativeElement;
+    if (el) this.follow = atEnd(el.scrollTop, el.clientHeight, el.scrollHeight);
   }
 
   /** Date of the first dated line, so the clock column below has a day. */
