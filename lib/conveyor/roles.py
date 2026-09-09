@@ -10,8 +10,9 @@ import shutil
 
 from . import config, presets, util
 
-REQUIRED_ROLE_HEADINGS = ("Owns", "Does not own", "Handoff contract")
+REQUIRED_ROLE_HEADINGS = ("Owns", "Does not own")
 INTAKE_EXCLUDED = "ticket-reviewer"
+CONTRACT_HEADING = "Handoff contract"
 
 # Repo-root catalogs only; `.agents/skills` wins on duplicate names.
 SKILL_CATALOGS = (".agents/skills", ".cursor/skills")
@@ -25,10 +26,6 @@ _ROLE_STUB = """# Role: {name}
 ## Does not own
 
 - (describe what this role does not own)
-
-## Handoff contract
-
-- (describe handoff contract)
 """
 
 
@@ -72,6 +69,105 @@ def validate_role_text(text):
     for heading in REQUIRED_ROLE_HEADINGS:
         if not re.search(rf"^#+\s+{re.escape(heading)}\s*$", text, re.M):
             raise RoleError(f"role file must include heading {heading!r}")
+
+
+def has_handwritten_contract(text):
+    """True when a role file still carries its own `## Handoff contract` heading.
+
+    The section is now generated from conveyor.conf (see render_contract); a
+    hand-written one is accepted but overridden, and `conveyor start` warns.
+    """
+    return bool(re.search(rf"^#+\s+{re.escape(CONTRACT_HEADING)}\s*$", text, re.M))
+
+
+# The "When" column, keyed by verdict. Matches constitution/handoffs.md's
+# two-pack example so the generated block reads the same as the process layer.
+_VERDICT_WHEN = {
+    "ready": "Task done and verified",
+    "findings": "Something is missing or wrong",
+    "pass": "Every requirement is proven",
+}
+# Row order within the table: `ready` first, then `findings`, then `pass`.
+_VERDICT_ORDER = {"ready": 0, "findings": 1, "pass": 2}
+
+_DRAFT_BLOCK = (
+    "Write exactly this to ./tmp/handoff.txt, then run "
+    "handoff.sh ./tmp/handoff.txt:\n\n"
+    "    to: <role or done>\n"
+    "    task: <task name from your prompt>\n"
+    "    verdict: <ready | pass | findings>\n"
+)
+
+
+def render_contract(cfg, name):
+    """The generated `## Handoff contract` block for role `name`.
+
+    Pure function of `cfg.routes()`, `cfg.names()`, `cfg.gate_role()`, and
+    `name` (decision 2 of docs/plans/generated-handoff-contract.md). Raises
+    RoleError for a name not on the active belt.
+    """
+    names = cfg.names()
+    if name not in names:
+        raise RoleError(f"role {name!r} is not on the active workflow")
+    i = names.index(name)
+    is_first = i == 0
+    is_penultimate = i == len(names) - 2  # -1 when len == 1; never matches
+
+    rows = sorted(
+        ((a, to, v) for (a, to, v) in cfg.routes() if a == name),
+        key=lambda r: _VERDICT_ORDER.get(r[2], 9),
+    )
+
+    table = ["| You are | to | verdict | When |", "|---|---|---|---|"]
+    for _, to, v in rows:
+        table.append(f"| {name} | {to} | {v} | {_VERDICT_WHEN.get(v, '')} |")
+
+    # Each entry is one paragraph; blocks are joined by a blank line.
+    blocks = [
+        f"## {CONTRACT_HEADING}",
+        "Generated from conveyor.conf at conveyor start. This section overrides "
+        "any\nhand-written contract above it.",
+        "\n".join(table),
+    ]
+
+    if cfg.gate_role() == name:
+        blocks.append(
+            "Your `ready` is held in `.conveyor/approvals/pending/` until the "
+            "operator\napproves it; a rejection comes back as a `findings`-style "
+            "body beginning\n`Rejected by operator:`.")
+
+    if any(v == "findings" for _, _, v in rows):
+        blocks.append(
+            "For `findings`, HEAD must be a commit you made, not the one you "
+            "received;\nan empty commit (`git commit --allow-empty`) whose "
+            "message is the findings\nlist is the expected form.")
+
+    receive = _receive_sentence(cfg, name, is_first, is_penultimate)
+    if receive:
+        blocks.append(receive)
+
+    blocks.append(_DRAFT_BLOCK.rstrip("\n"))
+    return "\n\n".join(blocks) + "\n"
+
+
+def _receive_sentence(cfg, name, is_first, is_penultimate):
+    """The "You receive ..." line for a role (every role receives a `ready`).
+
+    Parentheticals ("(new task)", "(rework)") appear only for a first role,
+    reproducing the shipped coder.md prose for the two-pack.
+    """
+    names = cfg.names()
+    i = names.index(name)
+    clauses = []
+    if is_first:
+        clauses.append("`ready` from operator (new task)")
+    else:
+        clauses.append(f"`ready` from {names[i - 1]}")
+    if is_penultimate:
+        last = names[-1]
+        clauses.append(f"`findings` from {last} (rework)" if is_first
+                       else f"`findings` from {last}")
+    return "You receive " + " and ".join(clauses) + "."
 
 
 def list_names(root):

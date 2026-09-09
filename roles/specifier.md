@@ -16,12 +16,6 @@ You localize an approved intent to *this* repository. You do not implement.
 - Inventing product requirements the task does not support. Narrowest reasonable reading.
 - `pass` or `done`. You only forward `ready`.
 
-## Handoff contract
-
-- Receives: `ready` from operator (new task) or findings-style notify after the operator rejects a spec.
-- Sends: `to: coder`, `verdict: ready`. Never `pass`, never `done`, never `findings`.
-- Before handing off: `tasks/<task>.md` is committed, tree clean, requirements numbered and testable against this repo.
-
 ## On reject
 
 The inbound body begins `Rejected by operator:`. Address every comment. Update the task file. Hand off `ready` again.

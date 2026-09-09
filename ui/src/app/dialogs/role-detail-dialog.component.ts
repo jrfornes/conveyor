@@ -15,6 +15,10 @@ export interface RoleDetailDialogData {
   roleText: string;
   assignedSkills: string[];
   availableSkills: SkillInfo[];
+  /** Generated handoff contract for the active workflow; null when off-belt. */
+  contract: string | null;
+  /** True when the role file still carries a hand-written Handoff contract. */
+  handwrittenContract: boolean;
 }
 
 export interface RoleDetailDialogResult {
@@ -47,8 +51,20 @@ export interface RoleDetailDialogResult {
         <button mat-flat-button [disabled]="!roleDirty || busy" (click)="saveRole()">
           Save prompt
         </button>
-        <span class="hint">Applies on next Start. Headings required: Owns, Does not own, Handoff contract.</span>
+        <span class="hint">Applies on next Start. Headings required: Owns, Does not own.</span>
       </div>
+      @if (data.handwrittenContract) {
+        <div class="warn" role="alert">
+          This role file carries a hand-written Handoff contract; the generated one
+          overrides it — delete the section.
+        </div>
+      }
+      @if (data.contract) {
+        <div class="contract">
+          <h4>Handoff contract (generated from the active workflow)</h4>
+          <pre class="mdc">{{ data.contract }}</pre>
+        </div>
+      }
       <div class="skills">
         <h4>Assigned skills</h4>
         @if (!data.availableSkills.length) {
@@ -105,6 +121,22 @@ export interface RoleDetailDialogResult {
     }
     .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .hint { font-size: 12px; color: rgba(0,0,0,0.6); margin: 0; }
+    .warn {
+      padding: 8px 12px; border-radius: 8px; font-size: 13px;
+      background: #fff8e1; color: #8d6e00;
+    }
+    .contract { display: flex; flex-direction: column; gap: 6px; }
+    .contract h4 {
+      margin: 0; font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.04em; color: rgba(0,0,0,0.55);
+    }
+    .mdc {
+      margin: 0; white-space: pre-wrap; word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px; line-height: 1.45;
+      border: 1px solid rgba(0,0,0,0.12); border-radius: 6px;
+      padding: 8px; background: rgba(0,0,0,0.03);
+    }
     .skills { display: flex; flex-direction: column; gap: 6px; }
     .skills h4 {
       margin: 0; font-size: 12px; text-transform: uppercase;

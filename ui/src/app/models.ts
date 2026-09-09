@@ -204,6 +204,10 @@ export interface RoleRecord {
   text: string;
   hops: Hop[];
   skills?: string[];
+  /** Generated handoff contract for the active workflow; null when off-belt. */
+  contract: string | null;
+  /** True when the role file still carries a hand-written Handoff contract. */
+  handwritten_contract: boolean;
   model?: string;
   max_retries?: number;
   max_minutes?: number;

@@ -115,13 +115,14 @@ def _rollback(root, rel, path):
             os.remove(path)
 
 
-def ensure_worktree(root, paths, role_name):
+def ensure_worktree(root, paths, cfg, role_name):
     wt = paths.worktree(role_name)
     if not os.path.exists(os.path.join(wt, ".git")):
         util.git(["worktree", "add", "--force", "-B", f"conveyor-{role_name}", wt, "HEAD"], root)
     os.makedirs(os.path.join(wt, "tmp"), exist_ok=True)
     os.makedirs(os.path.join(wt, ".cursor", "rules"), exist_ok=True)
     rules = "".join(util.read_text(os.path.join(root, f)) + "\n" for f in RULE_FILES)
+    contract_block = ""
     if role_name == config.INTAKE_ROLE:
         rubric = intakelib.read_rubric(root)
         if rubric.strip():
@@ -135,13 +136,20 @@ def ensure_worktree(root, paths, role_name):
         role_md = intakelib.prompt_path(root)
     else:
         role_md = os.path.join(root, "roles", f"{role_name}.md")
+        # The handoff contract is generated from conveyor.conf, not the role
+        # file (docs/plans/generated-handoff-contract.md). A role file that
+        # still carries its own is accepted but overridden; warn once.
+        if roleslib.has_handwritten_contract(util.read_text(role_md)):
+            print(f"warning: roles/{role_name}.md carries a hand-written Handoff "
+                  f"contract; the generated one overrides it — delete the section")
+        contract_block = "\n\n" + roleslib.render_contract(cfg, role_name).rstrip("\n") + "\n"
     try:
         skills_block = roleslib.inject_skills(root, wt, role_name)
     except roleslib.RoleError as e:
         util.die(f"conveyor start: {e}")
     util.atomic_write(os.path.join(wt, ".cursor", "rules", "conveyor-role.mdc"),
                       f"---\ndescription: Conveyor rules for role {role_name}\nalwaysApply: true\n---\n\n"
-                      + rules + util.read_text(role_md) + skills_block)
+                      + rules + util.read_text(role_md) + contract_block + skills_block)
     return wt
 
 
@@ -669,7 +677,7 @@ def cmd_start(args):
     presets.ensure_seeded(paths)
     prune_stale_worktrees(root, cfg, paths)
     for role in cfg.roles:
-        wt = ensure_worktree(root, paths, role.name)
+        wt = ensure_worktree(root, paths, cfg, role.name)
         # New worktrees are born from HEAD and already have the commit. An
         # existing idle branch may predate it; a live loop must not be moved.
         if loop_pid(paths, role.name):
@@ -1238,7 +1246,7 @@ def cmd_intake(args):
     inbox.update_meta(paths, iid, status="improving" if improve else "grading")
     try:
         install_hook(root)
-        wt = ensure_worktree(root, paths, config.INTAKE_ROLE)
+        wt = ensure_worktree(root, paths, cfg, config.INTAKE_ROLE)
         # One-shot: start from current main so leftover grade.md cannot conflict.
         util.git(["reset", "--hard", util.git(["rev-parse", "HEAD"], root)], wt)
         # The reset prunes tmp/ when a previous run tracked it (a repo whose
@@ -1712,12 +1720,20 @@ def cmd_role(args):
             path = roleslib.md_path(root, name)
             if not os.path.isfile(path):
                 util.die(f"conveyor role show: unknown role {name!r}; create roles/{name}.md first")
-            belt = "on belt" if name in cfg.names() else "library"
+            on_belt = name in cfg.names()
+            belt = "on belt" if on_belt else "library"
             skills = roleslib.assigned_skills(root, name)
             print(f"{path}  [{belt}]")
             print(f"  skills: {', '.join(skills) if skills else 'none'}")
             print()
-            print(util.read_text(path), end="")
+            text = util.read_text(path)
+            print(text, end="" if text.endswith("\n") else "\n")
+            print()
+            if on_belt:
+                print(f"# Handoff contract (generated from conveyor.conf: {cfg.chain_label()})")
+                print(roleslib.render_contract(cfg, name), end="")
+            else:
+                print("# Handoff contract: not on the active workflow")
             return
 
         if verb == "new":
