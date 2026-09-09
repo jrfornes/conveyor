@@ -1,15 +1,19 @@
 import { Component, OnInit, computed } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
-import { MatDialog } from '@angular/material/dialog';
+import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ConveyorApiService } from '../services/conveyor-api.service';
-import { UiStateService } from '../services/ui-state.service';
+import { FailureLike, UiStateService, errorMessage } from '../services/ui-state.service';
 import { AgentModel, RoleRecord, WorkflowState } from '../models';
 import { RoleCardsComponent } from './role-cards.component';
 import { EditorPaneComponent } from './editor-pane.component';
 import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
 import { NewRoleDialogComponent } from '../dialogs/new-role-dialog.component';
+import {
+  RoleDetailDialogComponent,
+  RoleDetailDialogResult,
+} from '../dialogs/role-detail-dialog.component';
 
 @Component({
   selector: 'app-roles-page',
@@ -52,43 +56,27 @@ import { NewRoleDialogComponent } from '../dialogs/new-role-dialog.component';
           </span>
         </div>
 
-        <section class="studio">
-          <div class="left">
-            <app-role-cards
-              [roles]="allRoles"
-              [models]="models"
-              [selected]="selected"
-              [locked]="running()"
-              [busy]="busy"
-              (select)="selectRole($event)"
-              (saveRuntime)="saveRuntime($event)"
-              (deleteRole)="deleteRole($event)"
-            ></app-role-cards>
-          </div>
-          <div class="right">
-            <app-editor-pane
-              [roleName]="selected"
-              [roleText]="roleDraft"
-              [roleDirty]="roleDirty"
-              [projectText]="projectDraft"
-              [projectDirty]="projectDirty"
-              [projectGates]="workflow.project_gates"
-              [constitution]="workflow.constitution"
-              [availableSkills]="workflow.available_skills"
-              [assignedSkills]="assignedSkills"
-              [savedAssignedSkills]="savedAssignedSkills"
-              [skillsDirty]="skillsDirty"
-              [busy]="busy"
-              (roleTextChange)="roleDraft = $event; saved = false"
-              (projectTextChange)="projectDraft = $event; saved = false"
-              (assignedSkillsChange)="assignedSkills = $event"
-              (saveRole)="saveRole()"
-              (saveProject)="saveProject()"
-              (runGate)="runGate($event)"
-              (saveSkills)="saveSkills($event)"
-            ></app-editor-pane>
-          </div>
-        </section>
+        <app-role-cards
+          [roles]="allRoles"
+          [models]="models"
+          [selected]="selected"
+          [locked]="running()"
+          [busy]="busy"
+          (select)="openRole($event)"
+          (saveRuntime)="saveRuntime($event)"
+          (deleteRole)="deleteRole($event)"
+        ></app-role-cards>
+
+        <app-editor-pane
+          [projectText]="projectDraft"
+          [projectDirty]="projectDirty"
+          [projectGates]="workflow.project_gates"
+          [constitution]="workflow.constitution"
+          [busy]="busy"
+          (projectTextChange)="projectDraft = $event; saved = false"
+          (saveProject)="saveProject()"
+          (runGate)="runGate($event)"
+        ></app-editor-pane>
       }
     </div>
   `,
@@ -108,21 +96,11 @@ import { NewRoleDialogComponent } from '../dialogs/new-role-dialog.component';
       margin: 0; font-size: 13px; text-transform: uppercase;
       letter-spacing: 0.06em; color: rgba(0,0,0,0.55);
     }
-    .studio {
-      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
-      gap: 16px; align-items: start;
-    }
-    .left, .right { min-width: 0; }
-    @media (max-width: 960px) { .studio { grid-template-columns: 1fr; } }
   `,
 })
 export class RolesPageComponent implements OnInit {
   workflow: WorkflowState | null = null;
   selected: string | null = null;
-  roleDraft = '';
-  savedRoleText = '';
-  assignedSkills: string[] = [];
-  savedAssignedSkills: string[] = [];
   projectDraft = '';
   savedProjectText = '';
   busy = false;
@@ -133,30 +111,22 @@ export class RolesPageComponent implements OnInit {
 
   /** Set from ?role=<name> on first load, then cleared. */
   private requested: string | null = null;
+  private roleDialog: MatDialogRef<RoleDetailDialogComponent, RoleDetailDialogResult> | null = null;
 
   running = computed(() => this.ui.state()?.running ?? this.workflow?.running ?? false);
-
-  get skillsDirty(): boolean {
-    const a = [...this.assignedSkills].sort().join(',');
-    const b = [...this.savedAssignedSkills].sort().join(',');
-    return a !== b;
-  }
 
   constructor(
     private api: ConveyorApiService,
     public ui: UiStateService,
     private snack: MatSnackBar,
     private route: ActivatedRoute,
+    private router: Router,
     private dialog: MatDialog,
   ) {}
 
   get allRoles(): RoleRecord[] {
     if (!this.workflow) return [];
     return [...this.workflow.roles, ...this.workflow.library];
-  }
-
-  get roleDirty(): boolean {
-    return this.roleDraft !== this.savedRoleText;
   }
 
   get projectDirty(): boolean {
@@ -177,12 +147,12 @@ export class RolesPageComponent implements OnInit {
       },
       error: (e) => {
         this.models = [];
-        this.modelsError = e?.error?.error ?? e.message ?? 'Failed to list models';
+        this.modelsError = this.inline(e, 'Failed to list models');
       },
     });
   }
 
-  load(keepSelection = false): void {
+  load(): void {
     this.api.workflow().subscribe({
       next: (w) => {
         this.workflow = w;
@@ -192,33 +162,52 @@ export class RolesPageComponent implements OnInit {
         if (!keepProject) this.projectDraft = w.project;
         const names = this.allRoles.map((r) => r.name);
         if (this.requested && names.includes(this.requested)) {
-          this.selected = this.requested;
+          const name = this.requested;
           this.requested = null;
-          this.applySelectedText();
-        } else if (!keepSelection || !this.selected || !names.includes(this.selected)) {
-          this.selected = w.roles[0]?.name ?? names[0] ?? null;
-          this.applySelectedText();
-        } else if (!this.roleDirty) {
-          this.applySelectedText();
+          this.openRole(name);
         }
       },
       error: (e) => {
-        this.error = e?.error?.error ?? e.message ?? 'Failed to load roles';
+        this.error = this.inline(e, 'Failed to load roles');
       },
     });
   }
 
-  selectRole(name: string): void {
+  openRole(name: string): void {
+    if (!this.workflow) return;
+    const role = this.allRoles.find((r) => r.name === name);
+    if (!role) return;
+    this.roleDialog?.close();
     this.selected = name;
-    this.applySelectedText();
-  }
-
-  private applySelectedText(): void {
-    const role = this.allRoles.find((r) => r.name === this.selected);
-    this.savedRoleText = role?.text ?? '';
-    this.roleDraft = this.savedRoleText;
-    this.savedAssignedSkills = [...(role?.skills ?? [])];
-    this.assignedSkills = [...this.savedAssignedSkills];
+    const ref = this.dialog.open(RoleDetailDialogComponent, {
+      width: '720px',
+      maxWidth: '95vw',
+      maxHeight: '90vh',
+      panelClass: 'role-detail-dialog',
+      data: {
+        roleName: name,
+        roleText: role.text,
+        assignedSkills: [...(role.skills ?? [])],
+        availableSkills: this.workflow.available_skills,
+      },
+    });
+    this.roleDialog = ref;
+    ref.componentInstance.saved.subscribe(() => {
+      this.saved = true;
+      this.load();
+    });
+    ref.afterClosed().subscribe(() => {
+      if (this.roleDialog !== ref) return;
+      this.roleDialog = null;
+      this.selected = null;
+      if (this.route.snapshot.queryParamMap.has('role')) {
+        void this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: {},
+          replaceUrl: true,
+        });
+      }
+    });
   }
 
   newRole(): void {
@@ -236,11 +225,11 @@ export class RolesPageComponent implements OnInit {
             this.busy = false;
             this.snack.open(`roles/${v.name}.md created`, undefined, { duration: 3000 });
             this.requested = v.name;
-            this.load(true);
+            this.load();
           },
           error: (e) => {
             this.busy = false;
-            this.error = e?.error?.error ?? e.message ?? 'Create failed';
+            this.error = this.inline(e, 'Create failed');
           },
         });
       });
@@ -264,35 +253,20 @@ export class RolesPageComponent implements OnInit {
           next: () => {
             this.busy = false;
             this.snack.open(`roles/${role.name}.md deleted`, undefined, { duration: 2500 });
-            if (this.selected === role.name) this.selected = null;
+            if (this.selected === role.name) {
+              this.roleDialog?.close();
+              this.selected = null;
+            }
             this.load();
           },
           error: (e) => {
             this.busy = false;
-            this.snack.open(e?.error?.error ?? e.message ?? 'Delete failed', undefined,
-                            { duration: 5000 });
+            // Delete has no inline error slot of its own, so it goes on the
+            // shared sticky channel rather than a toast that times out.
+            this.ui.fail(e, 'Delete failed');
           },
         });
       });
-  }
-
-  saveSkills(skills: string[]): void {
-    if (!this.selected) return;
-    this.busy = true;
-    this.api.saveRoleSkills(this.selected, skills).subscribe({
-      next: () => {
-        this.busy = false;
-        this.savedAssignedSkills = [...skills];
-        this.saved = true;
-        this.snack.open(`roles/${this.selected}.skills saved — applies on next Start`, undefined,
-                        { duration: 3000 });
-        this.load(true);
-      },
-      error: (e) => {
-        this.busy = false;
-        this.error = e?.error?.error ?? e.message ?? 'Skills save failed';
-      },
-    });
   }
 
   saveRuntime(role: RoleRecord): void {
@@ -310,32 +284,13 @@ export class RolesPageComponent implements OnInit {
           this.busy = false;
           this.snack.open(`${role.name} runtime saved`, undefined, { duration: 2500 });
           this.ui.refresh();
-          this.load(true);
+          this.load();
         },
         error: (e) => {
           this.busy = false;
-          this.error = e?.error?.error ?? e.message ?? 'Runtime save failed';
+          this.error = this.inline(e, 'Runtime save failed');
         },
       });
-  }
-
-  saveRole(): void {
-    if (!this.selected) return;
-    this.busy = true;
-    this.api.saveRole(this.selected, this.roleDraft).subscribe({
-      next: () => {
-        this.busy = false;
-        this.savedRoleText = this.roleDraft;
-        this.saved = true;
-        this.snack.open(`roles/${this.selected}.md saved — applies on next Start`, undefined,
-                        { duration: 3000 });
-        this.load(true);
-      },
-      error: (e) => {
-        this.busy = false;
-        this.error = e?.error?.error ?? e.message ?? 'Prompt save failed';
-      },
-    });
   }
 
   saveProject(): void {
@@ -346,26 +301,32 @@ export class RolesPageComponent implements OnInit {
         this.savedProjectText = this.projectDraft;
         this.saved = true;
         this.snack.open('project.md saved — applies on next Start', undefined, { duration: 3000 });
-        this.load(true);
+        this.load();
       },
       error: (e) => {
         this.busy = false;
-        this.error = e?.error?.error ?? e.message ?? 'project.md save failed';
+        this.error = this.inline(e, 'project.md save failed');
       },
     });
   }
 
   runGate(name: string): void {
     this.busy = true;
-    this.api.runGate(name, this.selected ?? undefined).subscribe({
+    this.api.runGate(name, this.selected ?? this.workflow?.roles[0]?.name).subscribe({
       next: (r) => {
         this.busy = false;
         this.snack.open(r.message || `${name}: ok`, undefined, { duration: 4000 });
       },
       error: (e) => {
         this.busy = false;
-        this.error = e?.error?.error ?? e.message ?? 'Gate run failed';
+        this.error = this.inline(e, 'Gate run failed');
       },
     });
+  }
+
+  /** Show the failure inline and record it in the shared error history. */
+  private inline(e: FailureLike, fallback: string): string {
+    this.ui.note(e, fallback);
+    return errorMessage(e, fallback);
   }
 }
