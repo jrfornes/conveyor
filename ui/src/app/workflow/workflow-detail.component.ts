@@ -13,6 +13,7 @@ import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
 import {
   WorkflowEditDialogComponent,
   WorkflowEditData,
+  WORKFLOW_EDIT_DIALOG_OPTIONS,
 } from '../dialogs/workflow-edit-dialog.component';
 
 @Component({
@@ -251,7 +252,7 @@ export class WorkflowDetailComponent implements OnInit {
     const w = this.wf;
     this.dialog
       .open(WorkflowEditDialogComponent, {
-        width: '720px',
+        ...WORKFLOW_EDIT_DIALOG_OPTIONS,
         data: this.editorData(`Edit ${w.name}`, {
           name: w.name,
           description: w.description,
@@ -271,7 +272,7 @@ export class WorkflowDetailComponent implements OnInit {
     const w = this.wf;
     this.dialog
       .open(WorkflowEditDialogComponent, {
-        width: '720px',
+        ...WORKFLOW_EDIT_DIALOG_OPTIONS,
         data: this.editorData('Duplicate workflow', {
           name: `${w.name} copy`,
           description: w.description,

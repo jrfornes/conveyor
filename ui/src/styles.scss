@@ -37,6 +37,12 @@ html {
 }
 
 .intake-review-dialog .mat-mdc-dialog-container,
-.task-detail-dialog .mat-mdc-dialog-container {
+.task-detail-dialog .mat-mdc-dialog-container,
+.workflow-edit-dialog .mat-mdc-dialog-container,
+.role-detail-dialog .mat-mdc-dialog-container {
   max-width: 95vw;
+}
+
+.workflow-edit-dialog .mdc-label {
+  white-space: normal;
 }
