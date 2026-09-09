@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+**Token cost**
+
+- **Every agent run records what it spent.** `.conveyor/logs/<role>/<task>_<id>_a<attempt>.usage.json`
+  is written beside each run log, derived from it and never mutated, and the same numbers go into
+  the log itself so `conveyor log` shows a run's spend. PRD §2 names "a stuck task retries until the
+  bill arrives" as one of the four failure modes Conveyor exists to stop; wall-clock and retry count
+  were bounded, cost was not visible at all. PRD B.7, metering half. Protocol §6.9.
+- **The number is auditable or it is absent.** A stream can report usage as a cumulative total on
+  its terminal event or as per-message deltas, and nothing in it says which — summing a cumulative
+  total double-bills, last-winning a delta under-bills. A `result` event carrying usage wins
+  outright and per-message events are ignored; per-message objects are summed only in its absence;
+  and the rule that fired is recorded as `source`, so a wrong guess is visible in the file instead
+  of silently doubling a bill. Unrecognised keys are ignored, never summed.
+- **Unknown is never zero.** A run whose agent reported nothing still writes a sidecar with
+  `source: none` — an absent file means the loop did not finish the run, which is a different fact.
+  Unknown reads `-` on every surface and never `0`, because `0` is an answer an agent can give, and
+  a set of runs that all reported nothing sums to unknown rather than to zero.
+- **`conveyor cost [<task>]`** — a pure read (no lock, no writes, works on a stopped pipeline):
+  one row per board task, or one row per agent run for a single task with the `source` that
+  produced each number. `conveyor status` board rows gain a `tok` column. Runbook §6, §6.2.
+- **`max_tokens=N` on a role line parks the task `max-tokens`.** Task-wide and read from the
+  current role's config, exactly as `max_minutes` is, so a coder ↔ reviewer ping-pong is one
+  budget. Checked between attempts as well as before each item — a task can spend the whole budget
+  inside one handoff — but it never kills a running agent; only `max_minutes` does that. Absent or
+  `0` is unbounded, and a task whose runs all reported nothing never parks: Conveyor refuses rather
+  than parking on a number it invented. `conveyor resume` does not reset the total. Protocol §6.6.
+- **Tokens, never dollars.** `cost_usd` is stored only if the agent reports one. Conveyor ships no
+  price table: prices go stale, and a fabricated dollar figure on an operator's screen is worse
+  than no figure. Dollar ceilings and a `[prices]` section remain a later decision.
+- Usage lives in its own files rather than a `board.tsv` column: `board.COLS` is a fixed 8-tuple
+  and any row with a different cell count is malformed, so widening it would make every
+  pre-existing row invisible to `board.get`. `GET /api/cost` serves the same figures.
+
 **Worktree setup**
 
 - **`[global] worktree_setup` makes a role's tree runnable.** Every role works in its own git
