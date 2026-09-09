@@ -24,6 +24,31 @@ SESSION_RE = re.compile(r'"session_?[iI]d"\s*:\s*"([^"]+)"')
 VALIDATOR_RE = re.compile(r'(?:E_[A-Z_]+|AUDIT_REQUIRED): [^"\\\n]*')
 
 
+def agent_lines(text):
+    """The run log minus Conveyor's own records (`type: conveyor`).
+
+    The prompt record quotes the previous attempt's validator output, so a scan
+    for the *agent's* last `E_...:` line must not read it back from there: an
+    attempt that never called handoff.sh would otherwise inherit a stale error
+    instead of `No handoff.sh call was observed.` (§6.8 item 4)."""
+    kept = []
+    for line in text.splitlines():
+        try:
+            if json.loads(line).get("type") == "conveyor":
+                continue
+        except (ValueError, AttributeError):
+            pass
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def prompt_summary(prompt):
+    """`text` of the prompt record: the size, so `conveyor log` shows one line."""
+    n = len(prompt)
+    lines = prompt.count("\n") + 1 if prompt else 0
+    return f"{lines} line{'s' if lines != 1 else ''}, {usage.human(n)} chars"
+
+
 def stamped(line):
     """One run-log line with the time it was read as its first key (protocol §6.9).
 
@@ -396,6 +421,13 @@ class Loop:
                  "attempt": attempt, "model": self.me.model, "resumed": bool(session),
                  "text": f"attempt {attempt}, model {self.me.model}"
                          f"{', resumed session' if session else ''}"})))
+            # The exact prompt, verbatim, next to the run it went into. A real agent
+            # never echoes what it was told, so without this the operator can only
+            # guess what the task text, inbound handoff and quoted validator output
+            # looked like from the agent's side (§6.8, §6.9).
+            lf.write(stamped(json.dumps(
+                {"type": "conveyor", "event": "prompt", "chars": len(prompt),
+                 "text": prompt_summary(prompt), "prompt": prompt})))
             lf.flush()
             started = time.monotonic()
             try:
@@ -464,8 +496,9 @@ class Loop:
             lf.write(stamped(json.dumps({"type": "conveyor", "event": "exit", "exit": rc})))
         print(f"{task}: attempt {attempt} agent exited {rc}", flush=True)
         usage.record(self.paths, self.role, task, hid, attempt, scanned, elapsed, rc)
-        m = SESSION_RE.search(text)
-        errs = VALIDATOR_RE.findall(text)
+        said = agent_lines(text)
+        m = SESSION_RE.search(said)
+        errs = VALIDATOR_RE.findall(said)
         return (m.group(1) if m else session), (errs[-1] if errs else None), detail
 
     @staticmethod

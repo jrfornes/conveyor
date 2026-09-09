@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+**Prompt visibility: the prompt is in the run log**
+
+- **Every run records the prompt it was given, verbatim.** The loop writes a second record
+  after `run` — `{"type":"conveyor","event":"prompt","chars":…,"text":"<n> lines, <n> chars",
+  "prompt":"…"}` — before the agent starts. A real agent never echoes what it was told, so until
+  now the task text as merged, the inbound handoff and the quoted validator output were
+  reconstructable from protocol §6.8 and readable nowhere. Protocol §6.8, §6.9.
+- `conveyor log <role>` shows it as one line (`[conveyor] prompt 26 lines, 488 chars`);
+  `conveyor log <role> [<task>] --prompt` prints the text and nothing else. A log from before the
+  record existed refuses with `no prompt recorded in <file>` rather than printing a reconstruction.
+- The cockpit's Log tab gets a **Show prompt** toggle; `GET /api/logs/<role>` carries the same
+  text as `prompt` (`null` when the log has none).
+- **The loop no longer reads its own records back.** The prompt of attempt *n* quotes attempt
+  *n − 1*'s `E_…:` / `AUDIT_REQUIRED:` line, and the scan that finds the agent's last validator
+  output (and its session id) now skips `type: conveyor` records. Without that, an attempt that
+  never called `handoff.sh` would have been told the stale error instead of `No handoff.sh call
+  was observed.`
+- New `lib/conveyor/runlog.py` (`records`, `last_prompt`), shared by the CLI and the UI server.
+  The fake agent stops echoing its prompt: the loop's record is the source now, and the echo would
+  have let the test double read a quoted error out of the log the way a real agent cannot.
+
 **Worktree setup**
 
 - **`[global] worktree_setup` makes a role's tree runnable.** Every role works in its own git

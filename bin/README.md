@@ -114,7 +114,10 @@ Where the protocol left a choice, the refusing option was taken.
    deleting a row only makes sense for `done` or `needs-human` tasks.
 10. **Last validator output for retries (§6.8 item 4)** is found by scanning the
     previous run's stream-json log for the last `E_...: ` or `AUDIT_REQUIRED: `
-    line; agent prose is never interpreted.
+    line; agent prose is never interpreted. The loop's own `type: conveyor`
+    records are skipped: the `prompt` record quotes exactly that line, and
+    reading it back would hand a stale error to an attempt that never called
+    `handoff.sh`.
 11. **`conveyor status`** follows runbook §6 exactly and appends
     `last: <task>` (the most recent completed item, PRD OBS-1) at the end of
     each role line.

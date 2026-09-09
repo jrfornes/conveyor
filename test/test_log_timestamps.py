@@ -35,15 +35,16 @@ class LogTimestamps(ConveyorTest):
         self.assertEqual(first["model"], "composer-2.5")
         self.assertEqual((last["type"], last["event"], last["exit"]), ("conveyor", "exit", 0))
         self.assertLessEqual(first["at"], last["at"])
-        self.assertIn("session_id", json.dumps(events[1]))  # agent output, dated by the stamper
+        self.assertEqual(events[1]["event"], "prompt")  # the loop's second record (§6.9)
+        self.assertIn("session_id", json.dumps(events[2]))  # agent output, dated by the stamper
 
     def test_agent_keys_survive_stamping(self):
         """`at` goes first; the agent's own object is passed through unchanged."""
         self.run_pipeline("demo")
         fake = [ev for ev in self.run_log() if ev.get("type") == "fake"][0]
         self.assertEqual(list(fake)[0], "at")
-        self.assertIn("prompt", fake)
-        self.assertIn("Task: demo", fake["prompt"])
+        self.assertIn("args", fake)
+        self.assertEqual(fake["args"][:5], ["-p", "--force", "--model", "composer-2.5", "--output-format"])
 
     def test_conveyor_log_prints_date_and_clock(self):
         self.run_pipeline("demo")

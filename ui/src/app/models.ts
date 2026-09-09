@@ -108,6 +108,14 @@ export interface LogEvent {
   text?: string;
 }
 
+/** One role's newest run log (`GET /api/logs/:role`). */
+export interface RunLog {
+  filename: string | null;
+  events: LogEvent[];
+  /** The exact prompt the loop handed the agent; null for logs written before it was recorded. */
+  prompt: string | null;
+}
+
 export interface HandoffSummary {
   file: string;
   id?: string;

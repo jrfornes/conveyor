@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(REPO, "lib"))
 
 from conveyor import (  # noqa: E402
     agent, board, config, gates, handoff, intake as intakelib, jira as jiralib,
-    layout, presets, queue, roles, usage, util, workflows,
+    layout, presets, queue, roles, runlog, usage, util, workflows,
 )
 
 
@@ -179,17 +179,18 @@ def read_logs(root, role, task=None):
     d = os.path.join(paths.logs, role)
     prefix = f"{task}_" if task else ""
     if not os.path.isdir(d):
-        return {"filename": None, "events": []}
+        return {"filename": None, "events": [], "prompt": None}
     logs = sorted(
         (os.path.getmtime(os.path.join(d, f)), f)
         for f in os.listdir(d)
         if f.endswith(".jsonl") and f.startswith(prefix)
     )
     if not logs:
-        return {"filename": None, "events": []}
+        return {"filename": None, "events": [], "prompt": None}
     filename = logs[-1][1]
+    text = util.read_text(os.path.join(d, filename))
     events = []
-    for line in util.read_text(os.path.join(d, filename)).splitlines():
+    for line in text.splitlines():
         try:
             ev = json.loads(line)
         except ValueError:
@@ -203,7 +204,9 @@ def read_logs(root, role, task=None):
             if k in ev and ev[k] not in ("", None)
         )
         events.append({"type": kind, "at": ev.get("at", ""), "detail": detail[:400], "raw": ev})
-    return {"filename": filename, "events": events}
+    # The run's prompt verbatim (protocol §6.9), once, beside the events: the
+    # 400-char `detail` is a log line, not a place to read a task file from.
+    return {"filename": filename, "events": events, "prompt": runlog.last_prompt(text)}
 
 
 def read_handoffs(root, role, queue_dir):

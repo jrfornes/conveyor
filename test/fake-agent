@@ -40,7 +40,10 @@ def main():
     prompt = args[-1] if args else ""
     session = args[args.index("--resume") + 1] if "--resume" in args else f"fake-{os.getpid()}"
     emit(type="system", session_id=session)
-    emit(type="fake", args=args[:-1], prompt=prompt)
+    # Like a real agent, never echo the prompt: the loop's own `prompt` record is
+    # where it lives, and a copy here would let the loop's validator scan read a
+    # quoted error back out of the log (protocol §6.8 item 4).
+    emit(type="fake", args=args[:-1])
     role = os.environ.get("CONVEYOR_ROLE", "")
     m = re.search(r"^Task: (\S+)", prompt, re.M)
     task = m.group(1) if m else ""

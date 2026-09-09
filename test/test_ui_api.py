@@ -185,6 +185,31 @@ class UiApiTest(unittest.TestCase):
         handoffs = get(f"{self.base}/api/handoffs/coder/new")
         self.assertIsInstance(handoffs, list)
 
+    def test_logs_carry_the_run_prompt(self):
+        """`prompt` is the loop's own record, verbatim; a log without one says null."""
+        d = os.path.join(self.fx.paths.logs, "coder")
+        os.makedirs(d, exist_ok=True)
+        run = {"at": "2026-09-07T12:00:00Z", "type": "conveyor", "event": "run", "role": "coder",
+               "task": "demo", "attempt": 1, "model": "composer-2.5", "resumed": False,
+               "text": "attempt 1, model composer-2.5"}
+        prompt = "Re-read your role and constitution.\n\nTask: demo\n# Demo\n\n1. Do thing.\n"
+        rec = {"at": "2026-09-07T12:00:00Z", "type": "conveyor", "event": "prompt",
+               "chars": len(prompt), "text": "6 lines, 71 chars", "prompt": prompt}
+        with open(os.path.join(d, "demo_operator-000001_a1.jsonl"), "w") as f:
+            f.write(json.dumps(run) + "\n" + json.dumps(rec) + "\n"
+                    + json.dumps({"at": "2026-09-07T12:00:09Z", "type": "conveyor",
+                                  "event": "exit", "exit": 0}) + "\n")
+        log = get(f"{self.base}/api/logs/coder?task=demo")
+        self.assertEqual(log["filename"], "demo_operator-000001_a1.jsonl")
+        self.assertEqual(log["prompt"], prompt)
+        # The log line itself stays one line: the size, not the text.
+        line = next(e for e in log["events"] if e["type"] == "conveyor" and "prompt" in e["detail"])
+        self.assertEqual(line["detail"], "prompt 6 lines, 71 chars")
+        with open(os.path.join(d, "demo_operator-000001_a1.jsonl"), "w") as f:
+            f.write(json.dumps(run) + "\n")
+        self.assertIsNone(get(f"{self.base}/api/logs/coder?task=demo")["prompt"])
+        self.assertIsNone(get(f"{self.base}/api/logs/reviewer")["prompt"])
+
     def test_create_task_via_api(self):
         req = urllib.request.Request(
             f"{self.base}/api/tasks",

@@ -7,8 +7,8 @@ import {
   InboxDetail,
   IntakeJira,
   IntakeState,
-  LogEvent,
   ModelsResponse,
+  RunLog,
   WorkflowDetail,
   WorkflowEdit,
   WorkflowListResponse,
@@ -33,9 +33,9 @@ export class ConveyorApiService {
     return this.http.get<{ name: string; text: string }>(`${this.base}/tasks/${encodeURIComponent(name)}`);
   }
 
-  logs(role: string, task?: string): Observable<{ filename: string | null; events: LogEvent[] }> {
+  logs(role: string, task?: string): Observable<RunLog> {
     const q = task ? `?task=${encodeURIComponent(task)}` : '';
-    return this.http.get<{ filename: string | null; events: LogEvent[] }>(`${this.base}/logs/${role}${q}`);
+    return this.http.get<RunLog>(`${this.base}/logs/${role}${q}`);
   }
 
   handoffs(role: string, dir: string): Observable<HandoffSummary[]> {

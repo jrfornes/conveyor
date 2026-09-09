@@ -4,7 +4,7 @@
 conveyor init [<path>] | uninstall [--yes] [--bundle]
            | start [--no-setup] [--no-smoke] | stop [--now] | task <name> [--delete]
            | setup [--role <role>] [--force]
-           | status | log <role> [<task>] | cost [<task>] | resume <task> [--to <role>]
+           | status | log <role> [<task>] [--prompt] | cost [<task>] | resume <task> [--to <role>]
            | import --source manual|jira [--title ...]
            | import --refresh <id> | import --replace <id>
            | intake <id> [--improve] [--comments <file>] | intake config | intake jira
@@ -36,7 +36,7 @@ BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
 from conveyor import (adapters, agent as agentlib, attachments, board, config, gates, handoff, inbox,  # noqa: E402
                       intake as intakelib, jira as jiralib, layout, presets, queue,
-                      roles as roleslib, setup as setuplib, usage, util)
+                      roles as roleslib, runlog, setup as setuplib, usage, util)
 
 RULE_FILES = ["constitution.md", "constitution/engineering.md", "constitution/workflow.md",
               "constitution/handoffs.md", "project.md"]
@@ -827,16 +827,28 @@ LOG_DETAIL_KEYS = ("event", "subtype", "name", "command", "text", "output",
 
 def cmd_log(args):
     _, cfg, paths = setup()
+    want_prompt = "--prompt" in args
+    args = [a for a in args if a != "--prompt"]
     if not args or args[0] not in cfg.names():
-        util.die("usage: conveyor log <role> [<task>]")
+        util.die("usage: conveyor log <role> [<task>] [--prompt]")
     d = os.path.join(paths.logs, args[0])
     prefix = f"{args[1]}_" if len(args) > 1 else ""
     logs = sorted((os.path.getmtime(os.path.join(d, f)), f) for f in os.listdir(d)
                   if f.endswith(".jsonl") and f.startswith(prefix)) if os.path.isdir(d) else []
     if not logs:
         util.die("no log found")
+    text = util.read_text(os.path.join(d, logs[-1][1]))
+    if want_prompt:
+        # The run's prompt verbatim (protocol §6.9): what the agent was actually
+        # told, not a reconstruction of it. Logs from before it was recorded say so.
+        prompt = runlog.last_prompt(text)
+        if prompt is None:
+            util.die(f"no prompt recorded in {logs[-1][1]} (written before Conveyor logged prompts)")
+        print(f"== {logs[-1][1]}  prompt")
+        print(prompt)
+        return
     rows = []
-    for line in util.read_text(os.path.join(d, logs[-1][1])).splitlines():
+    for line in text.splitlines():
         try:
             ev = json.loads(line)
         except ValueError:

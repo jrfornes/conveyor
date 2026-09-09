@@ -635,6 +635,8 @@ The prompt passed to the agent, in this order, separated by blank lines:
 
 Role instructions themselves are not in the prompt; they are in `.cursor/rules/conveyor-role.mdc`, which Cursor loads from the worktree root. The loop verifies that file exists before each run (`E_NO_RULES` in the log; park with reason `no-rules`).
 
+The prompt is recorded verbatim in the run log before the agent starts (the `prompt` record, §6.9). An agent does not echo what it was told, and the operator must be able to read exactly what went in — the task text as merged, the inbound handoff, the quoted validator output — rather than reconstruct it from this section.
+
 ### 6.9 Running the agent
 
 ```
@@ -670,6 +672,16 @@ A killed run writes one extra record before the exit record:
 `text` reads as the predicate of `event`, as it does for `run`, so `conveyor log` renders the pair as `killed after 120m0s (max-minutes deadline)`. `escalated` is true when `TERM` was not enough and `KILL` followed — the difference between an agent that was busy and one that was wedged.
 
 The loop dates its own records the same way. It writes `{"at":…,"type":"conveyor","event":"run","role":…,"task":…,"attempt":<n>,"model":…,"resumed":<bool>,"text":…}` before launching, records the exit code as the last line (`{"at":…,"type":"conveyor","event":"exit","exit":<n>}`), and extracts the session id from the first event that carries one. Exit code is informational only; §6.3's outbox check decides.
+
+**The prompt is the second record.** Immediately after `run`, and still before the agent is launched, the loop writes the §6.8 prompt exactly as passed on the command line:
+
+```
+{"at":…,"type":"conveyor","event":"prompt","chars":<n>,"text":"<n> lines, <n> chars","prompt":"<the whole prompt>"}
+```
+
+`text` is the size, so `conveyor log` renders the record as one line (`prompt 26 lines, 488 chars`); `prompt` is the text itself and is never truncated. `conveyor log <role> [<task>] --prompt` prints the last such record of the newest log and nothing else; a log from before this record existed makes it refuse with `no prompt recorded in <file>` rather than print a reconstruction. The cockpit shows the same field beside the log.
+
+Because the prompt of attempt *n* quotes the validator output of attempt *n − 1* (§6.8 item 4), the loop's scan for the last `E_…:` / `AUDIT_REQUIRED:` line and for the session id **skips its own `type: conveyor` records**. Only the agent's lines count: an attempt that never called `handoff.sh` is told `No handoff.sh call was observed.`, not handed a stale error the loop itself wrote into the log.
 
 **Usage sidecar.** After the run, the loop reads the completed log once and writes what the agent said it spent to `.conveyor/logs/<role>/<task>_<id>_a<attempt>.usage.json` — same key, same directory as the `.jsonl` it is derived from — through the atomic write of §8.3, and never re-opens it. Immediately before the `exit` record it writes the same numbers into the log as `{"at":…,"type":"conveyor","event":"usage","text":…,"input_tokens":…,"output_tokens":…,"source":…}`, so `conveyor log` shows a run's spend.
 

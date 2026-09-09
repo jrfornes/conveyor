@@ -1,10 +1,11 @@
 import { discardPeriodicTasks, fakeAsync, tick } from '@angular/core/testing';
 import { Observable, of, throwError } from 'rxjs';
-import { HandoffSummary, LogEvent } from '../models';
+import { HandoffSummary, LogEvent, RunLog } from '../models';
 import { ConveyorApiService } from '../services/conveyor-api.service';
 import { DetailRailComponent, REFRESH_MS, atEnd } from './detail-rail.component';
 
-type LogsResponse = { filename: string | null; events: LogEvent[] };
+/** A log read; `prompt` defaults to the pre-recording shape (none). */
+type LogsResponse = Omit<RunLog, 'prompt'> & { prompt?: string | null };
 
 function event(detail: string): LogEvent {
   return { type: 'assistant', at: '2026-09-07T12:34:56Z', detail };
@@ -14,9 +15,9 @@ function event(detail: string): LogEvent {
 function apiWithLogs(...reads: (LogsResponse | 'fail')[]): ConveyorApiService {
   let n = 0;
   return {
-    logs: (): Observable<LogsResponse> => {
+    logs: (): Observable<RunLog> => {
       const r = reads[Math.min(n++, reads.length - 1)];
-      return r === 'fail' ? throwError(() => new Error('down')) : of(r);
+      return r === 'fail' ? throwError(() => new Error('down')) : of({ prompt: null, ...r });
     },
     handoffs: (): Observable<HandoffSummary[]> => of([]),
   } as unknown as ConveyorApiService;
@@ -90,6 +91,32 @@ describe('DetailRailComponent log refresh', () => {
     expect(rail.logEvents.length).toBe(1);
     rail.ngOnDestroy();
     discardPeriodicTasks();
+  }));
+
+  it('carries the run prompt, hidden until asked for, and drops it with the role', fakeAsync(() => {
+    const rail = new DetailRailComponent(
+      apiWithLogs(
+        { filename: 'a.jsonl', events: [event('one')], prompt: 'Re-read your role and constitution.\n\nTask: demo' },
+        'fail',
+      ),
+    );
+    rail.onSelectRole('coder');
+    expect(rail.logPrompt).toContain('Task: demo');
+    expect(rail.showPrompt).toBe(false);
+    rail.showPrompt = true;
+    // A failed refresh keeps the prompt with the rest of the last good read.
+    tick(REFRESH_MS);
+    expect(rail.logPrompt).toContain('Task: demo');
+    rail.ngOnDestroy();
+    discardPeriodicTasks();
+
+    // Picking another role starts collapsed again, and a log without a prompt has none.
+    const other = new DetailRailComponent(apiWithLogs({ filename: 'b.jsonl', events: [event('two')] }));
+    other.showPrompt = true;
+    other.onSelectRole('reviewer');
+    expect(other.showPrompt).toBe(false);
+    expect(other.logPrompt).toBe(null);
+    other.ngOnDestroy();
   }));
 
   it('shows nothing when the very first read fails', fakeAsync(() => {

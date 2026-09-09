@@ -22,6 +22,7 @@ conveyor start
 conveyor task <name>       # create work; pipe or type the spec
 conveyor status
 conveyor log coder
+conveyor log coder --prompt   # exactly what the agent was told
 conveyor resume <task>     # after a needs-human park
 conveyor import --source manual --title "..."
 conveyor intake <id>

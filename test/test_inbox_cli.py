@@ -139,7 +139,7 @@ class Comments(ConveyorTest):
 
         # A second grade must not re-send feedback the reviewer already saw.
         fx.conveyor("intake", "with-notes")
-        prompts = [e for e in fx.logs("ticket-reviewer").splitlines() if '"type": "fake"' in e]
+        prompts = [e for e in fx.logs("ticket-reviewer").splitlines() if '"event": "prompt"' in e]
         self.assertEqual(len(prompts), 2)
         self.assertIn("Operator comments", prompts[0])
         self.assertNotIn("Operator comments", prompts[1])

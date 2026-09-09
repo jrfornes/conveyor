@@ -63,6 +63,7 @@ cursor-agent --list-models
 | Give the pipeline work | `conveyor task <name>` then type or pipe the task text (`conveyor task add-login < spec.md`) |
 | See where everything is | `conveyor status` |
 | Watch an agent | `conveyor log coder` — dated, §6.1 (or `tail -f .conveyor/logs/coder/*.jsonl`) |
+| See exactly what an agent was told | `conveyor log coder --prompt` — the run's prompt verbatim, §6.1 |
 | See what a loop did and when | `tail -f .conveyor/logs/coder/loop.log` — one dated line per item, attempt, and outcome |
 | See what a role produced | `git log conveyor-<role>` — every commit ends `By <role>.` |
 | Read a finished task | it's merged on `main`; `git log main` |
@@ -136,6 +137,7 @@ High `audit` with low `retry` means the coder is being challenged and fixing thi
 ```
 == add-login_operator-000001_a1.jsonl  2026-09-03T14:15:02Z
 14:15:02 [conveyor] run attempt 1, model composer-2.5
+14:15:02 [conveyor] prompt 31 lines, 1.4k chars
 14:15:04 [tool] git commit 0
 14:16:31 [tool] handoff.sh AUDIT_REQUIRED: handoff for add-login not queued (audit 1)
            Before resubmitting, re-read tasks/add-login.md and your role file.
@@ -153,6 +155,33 @@ show a blank clock instead.
 The `usage` line is what that one run cost, and `(result)` is where the number came from —
 `conveyor cost` explains the three sources. A run whose agent reported nothing reads
 `in -, out -` rather than zeros.
+
+The `prompt` line is the size of what the agent was told. To read the text itself:
+
+```
+$ conveyor log coder --prompt
+== add-login_operator-000001_a1.jsonl  prompt
+Re-read your role and constitution.
+
+Task: add-login
+# Add login
+…
+
+Inbound handoff:
+to: coder
+task: add-login
+verdict: findings
+…
+```
+
+This is the prompt exactly as the loop passed it (protocol §6.8): the task file at the merged
+commit, the inbound handoff with its body — for a coder retry, the reviewer's findings — and, on a
+second attempt, the validator output being quoted back. When an agent "did the wrong job", read
+this before editing `roles/<role>.md`: it settles whether the agent ignored the task or was never
+shown it. The role file and constitution are not in the prompt; they are in the worktree's
+`.cursor/rules/conveyor-role.mdc`. `conveyor log <role> <task> --prompt` narrows to a task, and the
+cockpit's Log tab has the same text behind **Show prompt**. A log written before Conveyor recorded
+prompts refuses with `no prompt recorded in <file>` rather than showing a reconstruction.
 
 `loop.log` in the same directory is the loop's own timeline (item picked up, attempt started, agent
 exit code, `forwarded`/`merged`, parks), one dated line each.

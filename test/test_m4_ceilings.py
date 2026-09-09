@@ -1,7 +1,6 @@
 """M4: ceilings park tasks in needs-human; conveyor status matches runbook §6."""
 import json
 import os
-import re
 import time
 import unittest
 
@@ -83,9 +82,10 @@ class M4Attempts(ConveyorTest):
         fx.conveyor("stop")
         fx.task("demo")
         fx.loop("coder")
-        prompts = re.findall(r'"prompt": "(.*?)"\}', fx.logs("coder"))
+        prompts = [json.loads(l)["prompt"] for l in fx.logs("coder").splitlines()
+                   if '"event": "prompt"' in l]
         self.assertEqual(len(prompts), 2)
-        self.assertIn("Last validator output:\\nAUDIT_REQUIRED: handoff for demo not queued (audit 1)", prompts[1])
+        self.assertIn("Last validator output:\nAUDIT_REQUIRED: handoff for demo not queued (audit 1)", prompts[1])
         self.assertIn("--resume", fx.logs("coder"))
 
 

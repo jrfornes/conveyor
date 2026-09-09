@@ -28,7 +28,7 @@ bin/hooks/commit-msg    byline hook (protocol §7.4)
 bin/hooks/npm-worktree-setup  worked example for [global] worktree_setup
 bin/conveyor-ui         optional localhost cockpit launcher (`--demo` throwaway fixture)
 bin/README.md           language decision, install, "Ambiguities resolved"
-lib/conveyor/           board, config, handoff, layout, queue, setup, util, presets, workflows, inbox, adapters, agent, intake, jira, usage
+lib/conveyor/           board, config, handoff, layout, queue, setup, util, presets, workflows, inbox, adapters, agent, intake, jira, usage, runlog
 intake/                 ticket-reviewer.md + rubric.md (operator-owned; not a coding role)
 ui/                     optional Angular cockpit (not protocol)
 test/fake-agent         scripted agent (protocol §11)

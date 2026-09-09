@@ -8,6 +8,7 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import { MatButtonModule } from '@angular/material/button';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Subscription, catchError, forkJoin, interval, of, startWith, switchMap } from 'rxjs';
@@ -58,7 +59,7 @@ function renderTask(text: string): MdBlock[] {
 @Component({
   selector: 'app-detail-rail',
   standalone: true,
-  imports: [MatTabsModule, MatProgressSpinnerModule, WorkQueueComponent],
+  imports: [MatButtonModule, MatTabsModule, MatProgressSpinnerModule, WorkQueueComponent],
   template: `
     <div class="rail">
       <app-work-queue [work]="work" (selectRole)="onSelectRole($event)"></app-work-queue>
@@ -103,7 +104,16 @@ function renderTask(text: string): MdBlock[] {
                 <span class="peek"> · {{ p }}</span>
               }
               <span class="live">{{ follow ? ' · live' : ' · live · scroll to the end to follow' }}</span>
+              @if (logPrompt !== null) {
+                <button mat-button class="prompt-toggle" (click)="showPrompt = !showPrompt">
+                  {{ showPrompt ? 'Hide prompt' : 'Show prompt' }}
+                </button>
+              }
             </div>
+            @if (showPrompt && logPrompt !== null) {
+              <div class="prompt-meta">What the agent was told for this run, verbatim.</div>
+              <pre class="mono prompt">{{ logPrompt }}</pre>
+            }
             <pre #logPre class="mono log" (scroll)="onLogScroll()">{{ formatLog() }}</pre>
           } @else if (logRole) {
             <p class="muted">No log yet for {{ logRole }}</p>
@@ -136,7 +146,10 @@ function renderTask(text: string): MdBlock[] {
     .rail { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 0; gap: 6px; min-width: 0; }
     .mono { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; overflow: auto; max-height: 40vh; margin: 6px 0; }
     .log { max-height: 40vh; }
-    .log-meta { font-size: 12px; opacity: 0.7; }
+    .log-meta { font-size: 12px; opacity: 0.7; display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; }
+    .prompt-toggle { margin-left: auto; height: 24px; line-height: 24px; font-size: 12px; padding: 0 8px; }
+    .prompt-meta { font-size: 11px; opacity: 0.6; margin-top: 4px; }
+    .prompt { max-height: 30vh; padding: 6px 8px; border-left: 3px solid rgba(0,0,0,0.15); background: rgba(0,0,0,0.03); }
     .peek { font-family: ui-monospace, monospace; }
     .live { opacity: 0.8; }
     .meta {
@@ -169,6 +182,9 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked, OnDestr
   logRole = '';
   logFile: string | null = null;
   logEvents: LogEvent[] = [];
+  /** The prompt of the run shown; null until a log with one is read. */
+  logPrompt: string | null = null;
+  showPrompt = false;
   loadingLog = false;
   loadingQueues = false;
   queueSections: { label: string; items: HandoffSummary[] }[] = [];
@@ -194,6 +210,7 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked, OnDestr
     this.logRole = role;
     this.tabIndex = 1;
     this.follow = true;
+    this.showPrompt = false;
     this.watchRole(role);
   }
 
@@ -226,6 +243,7 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked, OnDestr
         }
         this.logFile = r.log.filename;
         this.logEvents = r.log.events;
+        this.logPrompt = r.log.prompt;
         this.queueSections = QUEUE_DIRS.map((dir, i) => ({
           label: dir.replace('_', ' '),
           items: r.queues[i],
@@ -238,6 +256,7 @@ export class DetailRailComponent implements OnChanges, AfterViewChecked, OnDestr
   private clearRole(): void {
     this.logFile = null;
     this.logEvents = [];
+    this.logPrompt = null;
     this.queueSections = [];
     this.loadingLog = false;
     this.loadingQueues = false;
