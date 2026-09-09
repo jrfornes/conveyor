@@ -45,6 +45,8 @@ export class UiStateService {
   readonly state = signal<ConveyorState | null>(null);
   readonly live = signal(false);
   readonly busy = signal(false);
+  /** Short status shown in the inbox busy banner while busy is true. */
+  readonly busyMessage = signal('');
 
   /**
    * The last action failure, held until the operator dismisses it or starts the

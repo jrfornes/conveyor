@@ -5,13 +5,18 @@ import {
   ImportSummaryDialogComponent,
   ImportSummaryDialogData,
 } from './dialogs/import-summary-dialog.component';
-import { importedIds, parseImportMessage } from './util';
+import { ImportDialogComponent } from './dialogs/import-dialog.component';
+import { importedIds, parseImportMessage, importBusyMessage, gradingBusyMessage } from './util';
 
 export interface ImportDialogResult {
   source: string;
   title: string;
   body: string;
   grade: boolean;
+}
+
+export interface ImportDialogCloseResult extends ImportDialogResult {
+  message: string;
 }
 
 export function openImportSummary(
@@ -28,6 +33,19 @@ export function openImportSummary(
   });
 }
 
+export function openImport(
+  dialog: MatDialog,
+  api: ConveyorApiService,
+  ui: UiStateService,
+): void {
+  const ref = dialog.open(ImportDialogComponent, { width: '560px' });
+  ref.afterClosed().subscribe((v: ImportDialogCloseResult | undefined) => {
+    if (!v?.message) return;
+    openImportSummary(dialog, v.message);
+    runPostImportGrading(api, ui, v.message, v.grade);
+  });
+}
+
 export function runPostImportGrading(
   api: ConveyorApiService,
   ui: UiStateService,
@@ -38,9 +56,11 @@ export function runPostImportGrading(
   const gradeNext = (i: number) => {
     if (!grade || i >= ids.length) {
       ui.busy.set(false);
+      ui.busyMessage.set('');
       ui.refresh();
       return;
     }
+    ui.busyMessage.set(gradingBusyMessage(i, ids.length));
     api.inboxItem(ids[i]).subscribe({
       next: (item) => {
         if (!(item.source_md || '').trim()) {
@@ -51,6 +71,7 @@ export function runPostImportGrading(
           next: () => gradeNext(i + 1),
           error: (e) => {
             ui.busy.set(false);
+            ui.busyMessage.set('');
             ui.fail(e, 'Grade failed');
             ui.refresh();
           },
@@ -58,6 +79,7 @@ export function runPostImportGrading(
       },
       error: (e) => {
         ui.busy.set(false);
+        ui.busyMessage.set('');
         ui.fail(e, 'Import failed');
         ui.refresh();
       },

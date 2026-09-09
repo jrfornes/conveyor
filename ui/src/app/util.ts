@@ -116,3 +116,12 @@ export function parseImportMessage(message: string): ImportSummary {
 export function importedIds(summary: ImportSummary): string[] {
   return summary.imported.map((row) => row.id);
 }
+
+export function importBusyMessage(source: string): string {
+  return source === 'jira' ? 'Importing from Jira…' : 'Importing…';
+}
+
+export function gradingBusyMessage(index: number, total: number): string {
+  if (total <= 1) return 'Grading…';
+  return `Grading ticket ${index + 1} of ${total}…`;
+}
