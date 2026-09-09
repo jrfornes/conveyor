@@ -3,6 +3,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { ConveyorTask, RoleAvatar } from '../models';
+import { formatTokens } from '../util';
 
 @Component({
   selector: 'app-kanban-board',
@@ -35,6 +36,9 @@ import { ConveyorTask, RoleAvatar } from '../models';
                   <span class="audit">audit {{ task.audit_count }}</span>
                   @if (task.retry_count > 0) {
                     <span class="retry">retry {{ task.retry_count }}</span>
+                  }
+                  @if (task.run_count) {
+                    <span class="tok" [title]="tokTitle(task)">tok {{ tok(task) }}</span>
                   }
                   <div class="task-id">{{ task.task_id }}</div>
                 </mat-card-content>
@@ -119,6 +123,9 @@ import { ConveyorTask, RoleAvatar } from '../models';
       &.selected { outline: 2px solid var(--mat-sys-primary, #1976d2); }
     }
     .retry { font-size: 12px; color: #c62828; margin-left: 8px; }
+    /* Steel, the audit/meter end of the semantic palette, not an alarm colour:
+       spend is information, and only max_tokens makes it a problem. */
+    .tok { font-size: 12px; color: #546e7a; margin-left: 8px; font-family: monospace; }
     .audit { font-size: 12px; color: #1565c0; }
     .task-id { font-size: 11px; font-family: monospace; opacity: 0.7; margin-top: 2px; }
   `,
@@ -139,5 +146,17 @@ export class KanbanBoardComponent {
 
   tasksInLane(lane: string): ConveyorTask[] {
     return this.tasks.filter((t) => t.lane === lane);
+  }
+
+  /** `-` when runs happened but none reported usage; never `0` for unknown. */
+  tok(task: ConveyorTask): string {
+    return formatTokens(task.tokens);
+  }
+
+  tokTitle(task: ConveyorTask): string {
+    const runs = `${task.run_count} agent run${task.run_count === 1 ? '' : 's'}`;
+    return task.tokens == null
+      ? `${runs}, none of which reported token usage`
+      : `${task.tokens.toLocaleString()} tokens over ${runs}`;
   }
 }

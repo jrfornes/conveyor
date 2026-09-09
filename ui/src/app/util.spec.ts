@@ -1,4 +1,4 @@
-import { beltRoutes, formatAge, handoffLabel, parseImportMessage, slugify, tasksInLane } from './util';
+import { beltRoutes, formatAge, formatTokens, handoffLabel, parseImportMessage, slugify, tasksInLane } from './util';
 
 describe('util', () => {
   const tasks = [
@@ -9,6 +9,16 @@ describe('util', () => {
   it('filters tasks by lane', () => {
     expect(tasksInLane(tasks, 'coder').map((t) => t.name)).toEqual(['a']);
     expect(tasksInLane(tasks, 'done').map((t) => t.name)).toEqual(['b']);
+  });
+
+  it('formats tokens, and never renders unknown as zero', () => {
+    expect(formatTokens(null)).toBe('-');
+    expect(formatTokens(undefined)).toBe('-');
+    expect(formatTokens(0)).toBe('0'); // a real answer, distinct from `-`
+    expect(formatTokens(999)).toBe('999');
+    expect(formatTokens(1000)).toBe('1.0k');
+    expect(formatTokens(450400)).toBe('450.4k');
+    expect(formatTokens(1234567)).toBe('1.2M');
   });
 
   it('formats age', () => {

@@ -96,7 +96,14 @@ def build_state(root):
     lanes = cfg.names() + ["needs-human", "done"]
     tasks = []
     if initialized:
+        # One walk of the log tree for the whole board, the way `conveyor status`
+        # does it; parsed sidecars are memoised, so a 2 s poll re-stats rather than
+        # re-parses. `tokens` is null when no run reported usage -- unknown, never 0
+        # -- and `run_count` is what tells the card the difference between "nothing
+        # has run yet" and "runs happened and said nothing".
+        spend = usage.read_all(paths)
         for r in board.read(paths):
+            billed = usage.total(spend.get(r["name"], []))
             tasks.append({
                 "name": r["name"],
                 "lane": r["lane"],
@@ -105,6 +112,8 @@ def build_state(root):
                 "retry_count": int(r["retry_count"]),
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
+                "tokens": billed["total"],
+                "run_count": billed["runs"],
             })
     work = [role_state(paths, cfg, n) for n in cfg.names()] if initialized else []
     nh = needs_human(paths) if initialized else []

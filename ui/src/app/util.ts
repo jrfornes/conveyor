@@ -5,6 +5,18 @@ export function tasksInLane(tasks: ConveyorTask[], lane: string): ConveyorTask[]
   return tasks.filter((t) => t.lane === lane);
 }
 
+/**
+ * Client mirror of `usage.human()`: a token count as the operator reads it.
+ * `-` is the absence of an answer; `0` is an answer, so they never collapse.
+ * Keep the two in step — the same number must not appear in two shapes.
+ */
+export function formatTokens(n?: number | null): string {
+  if (n == null) return '-';
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return `${n}`;
+}
+
 export function formatAge(seconds?: number): string {
   if (seconds == null) return '—';
   if (seconds < 60) return `${seconds}s`;

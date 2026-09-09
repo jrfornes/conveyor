@@ -139,8 +139,25 @@ def record(paths, role, task, hid, attempt, scanned, duration_s, exit_code):
     return run
 
 
+# path -> ((mtime_ns, size), run). A sidecar is written once and never mutated
+# (invariant 3, bin/README.md Ambiguity 65), so a parsed one stays valid for as
+# long as its file is unchanged. This is what lets the cockpit poll a token total
+# every two seconds without re-parsing every run it has ever made; the CLI, being
+# one-shot, neither needs nor notices it. Bounded by the sidecars on disk, and
+# keyed on mtime and size so a hand-edited file is still re-read.
+_PARSED = {}
+
+
 def read_run(p):
     """One sidecar → its dict, with role/attempt recovered from the path if absent."""
+    try:
+        st = os.stat(p)
+    except OSError:
+        return None
+    stamp = (st.st_mtime_ns, st.st_size)
+    hit = _PARSED.get(p)
+    if hit is not None and hit[0] == stamp:
+        return dict(hit[1])  # a copy: a caller must never edit what the cache holds
     try:
         run = json.loads(util.read_text(p))
     except (OSError, ValueError):
@@ -154,7 +171,8 @@ def read_run(p):
         run.setdefault("task", parts[0])
         run.setdefault("id", parts[1])
         run.setdefault("attempt", int(parts[2][1:]) if parts[2][1:].isdigit() else 1)
-    return run
+    _PARSED[p] = (stamp, run)
+    return dict(run)
 
 
 def read_task(paths, task):
