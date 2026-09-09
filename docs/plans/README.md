@@ -51,7 +51,7 @@ plans 3–6 are deliberately not written up front.
 
 ## Baseline
 
-`cd test && python3 -m unittest discover -p 'test_*.py'` → **471 tests, ~540s** (104 → 120 → 206 → 390 → 416 → 471).
+`cd test && python3 -m unittest discover -p 'test_*.py'` → **478 tests, ~540s** (104 → 120 → 206 → 390 → 416 → 471 → 478).
 Every stage must leave this green.
 
 One known red: `test_inv11_restart.test_kill_running_loops_and_restart` fails in containers
