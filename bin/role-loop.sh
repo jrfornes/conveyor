@@ -4,7 +4,6 @@
 import json
 import os
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -17,8 +16,8 @@ if sys.version_info < (3, 10):
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
-from conveyor import (board, config, handoff, inbox, layout, queue,  # noqa: E402
-                      setup as setuplib, usage, util)
+from conveyor import (agent as agentlib, board, config, handoff, inbox,  # noqa: E402
+                      layout, queue, setup as setuplib, usage, util)
 
 SESSION_RE = re.compile(r'"session_?[iI]d"\s*:\s*"([^"]+)"')
 VALIDATOR_RE = re.compile(r'(?:E_[A-Z_]+|AUDIT_REQUIRED): [^"\\\n]*')
@@ -375,16 +374,12 @@ class Loop:
         """Resolve CONVEYOR_AGENT_BIN the way Popen(cwd=worktree) will, or None.
         A bare name is looked up on PATH; a path with a separator is taken as-is
         (relative paths resolve against the worktree, the agent's cwd)."""
-        b = os.environ["CONVEYOR_AGENT_BIN"]
-        if os.sep in b or (os.altsep and os.altsep in b):
-            cand = b if os.path.isabs(b) else os.path.join(self.wt, b)
-            return cand if os.path.isfile(cand) and os.access(cand, os.X_OK) else None
-        return shutil.which(b)
+        return agentlib.resolve(os.environ["CONVEYOR_AGENT_BIN"], self.wt)
 
     def run_agent(self, task, hid, attempt, prompt, session, deadline_s):
         log = os.path.join(self.paths.logs, self.role, f"{task}_{hid}_a{attempt}.jsonl")
-        cmd = [os.environ["CONVEYOR_AGENT_BIN"], "-p", "--force", "--model", self.me.model,
-               "--output-format", "stream-json", *self.cfg.agent_args, *self.me.args]
+        cmd = agentlib.compose(os.environ["CONVEYOR_AGENT_BIN"], self.me.model,
+                               [*self.cfg.agent_args, *self.me.args], output_format="stream-json")
         if session:
             cmd += ["--resume", session]
         cmd.append(prompt)

@@ -1,6 +1,7 @@
 # Cursor CLI runtime — the loop owes nothing to the operator's CLI config
 
-**Status:** planned. Nothing here changes the protocol. It changes the fixed
+**Status:** built — live verification (steps 1–4) against a real `cursor-agent`
+outstanding. Nothing here changes the protocol. It changes the fixed
 argument list the loop passes to `cursor-agent`, what `conveyor start`'s smoke
 test proves, and one runbook section.
 

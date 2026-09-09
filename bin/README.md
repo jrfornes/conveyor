@@ -521,6 +521,32 @@ Where the protocol left a choice, the refusing option was taken.
     *preferred* (the inbound commit unchanged is permitted), so it is a judgement
     call the operator may tune and stays in `roles/reviewer.md` under
     `## How to review`.
+68. **The Cursor sandbox is turned off by a flag, not a `sandbox.json`.**
+    Cursor's sandbox (`sandbox.mode` in `~/.cursor/cli-config.json`, on since
+    3.5) confines a shell command to the worktree with `.git/hooks` protected and
+    network off — but Conveyor's handoff writes to `.conveyor/` *above* the
+    worktree and the byline hook runs from the shared `.git/hooks`, so a
+    sandboxed run produces no handoff and no byline. The alternative, a
+    per-worktree `.cursor/sandbox.json` with `additionalReadwritePaths`, would
+    need the absolute repo root baked into each tree, still would not unprotect
+    `.git/hooks`, and would still be overridable by the user-level file. Conveyor
+    already isolates roles by worktree and branch, so the sandbox adds nothing it
+    relies on; the loop passes `--sandbox disabled` in its fixed argument list
+    instead (cursor-cli-runtime.md decisions 1–2). An operator who wants it back
+    for a role adds `--sandbox enabled` to that role's `cli-args`; the assembler's
+    dedupe is exact-match on flag *and* value, so the override survives after the
+    fixed `--sandbox disabled` and Cursor's own parser takes the later one.
+69. **The byline must be the last line; Conveyor does not learn to tolerate a
+    trailer after it.** Cursor's `attribution.attributeCommitsToAgent` (default
+    `true`) can append a `Made with Cursor` trailer. If it lands before `git
+    commit`, the byline hook appends `By <role>.` after it and all is well; if
+    Cursor amends after the hook, the byline is no longer last and `handoff.sh`
+    rejects the commit `E_NO_BYLINE` (invariant 10). Conveyor does not relax that
+    check — a byline that is not last is a byline another tool can push off the
+    end. There is no flag for attribution, so the fix is the operator's
+    (`attribution.attributeCommitsToAgent: false`), and `conveyor start`'s smoke
+    test is what tells them, with that exact repair text (cursor-cli-runtime.md
+    decision 3).
 
 ## Not built (PRD Appendix B)
 

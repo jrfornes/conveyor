@@ -30,6 +30,17 @@ role reviewer composer-2.5  max_minutes=60 max_attempts=2
 #   gate specifier
 #   gate none
 
+# Extra agent flags. Conveyor already passes a fixed list on every run —
+#   -p --force --trust --sandbox disabled --model <model> --output-format stream-json
+# — so the loop owns the arguments it needs to run correctly whatever
+# ~/.cursor/cli-config.json says. `agent_args` (and a role's trailing cli-args)
+# are appended to that list, not a replacement for it; a token already in the
+# fixed list is dropped, so there is no need to repeat `--trust`. To hand one
+# role the sandbox back, add `--sandbox enabled` to that role's line (the later
+# token wins) — but then handoff.sh and the byline hook may be blocked.
+# [global]
+#   agent_args = --some-flag
+
 # Optional integration policy: what `done` does with the reviewed commit.
 # [global]
 #   integration = merge            # default: merge into the integration tree's branch

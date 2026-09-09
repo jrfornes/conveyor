@@ -2,8 +2,11 @@
 """Fake cursor-agent (protocol §11). Replays CONVEYOR_FAKE_SCRIPT, a file of lines:
 
   commit [--empty] [--no-verify] "<message>"   write work.txt (unless --empty), git commit
+  commit-amend-trailer "<text>"                empty commit, then `git commit --amend` to
+                                               append <text> after the byline hook has run
   draft <to> <task> <verdict>                  write ./tmp/handoff.txt ($TASK, $ROLE expand)
   write <file> "<text>"                        write a file in the worktree
+  probe-write <path> <text>                    write <text> to <path> ($ROOT, $ROLE expand)
   handoff                                      run handoff.sh ./tmp/handoff.txt
   usage <in> <out>                             emit a final result event carrying usage
   usage-msg <in> <out>                         emit one per-message usage event
@@ -14,8 +17,12 @@
 A literal \n inside a quoted argument becomes a newline.
 
 If CONVEYOR_FAKE_SCRIPT is a directory, <dir>/<role> is used; <dir>/<role>.resume
-when invoked with --resume and that file exists. `--list-models` and `models`
-list CONVEYOR_FAKE_MODELS (comma separated; default composer-2.5,gpt-5)."""
+when invoked with --resume and that file exists. A smoke run (no `Task:` line)
+uses <dir>/<role>.smoke when present, else the default smoke: write `ok` to
+$CONVEYOR_ROOT/tmp/smoke-<role>.txt and make one empty `conveyor smoke` commit.
+`--list-models` and `models` list CONVEYOR_FAKE_MODELS (comma separated; default
+composer-2.5,gpt-5). CONVEYOR_FAKE_ARGV, if set, receives this run's argv, one
+token per line."""
 import json
 import os
 import re
@@ -30,8 +37,24 @@ def emit(**ev):
     print(json.dumps(ev), flush=True)
 
 
+def default_smoke(role):
+    """What a well-behaved agent does for SMOKE_PROMPT: write the probe outside
+    the worktree and make one empty commit; the byline hook adds `By <role>.`."""
+    root = os.environ.get("CONVEYOR_ROOT", "")
+    probe = os.path.join(root, "tmp", f"smoke-{role}.txt")
+    os.makedirs(os.path.dirname(probe), exist_ok=True)
+    with open(probe, "w") as f:
+        f.write("ok\n")
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "conveyor smoke"], check=True)
+    emit(type="result", text="ok")
+
+
 def main():
     args = sys.argv[1:]
+    argv_out = os.environ.get("CONVEYOR_FAKE_ARGV")
+    if argv_out:
+        with open(argv_out, "w") as f:
+            f.write("\n".join(args) + "\n")
     if args[:1] in (["models"], ["--list-models"]):
         print("\n".join(os.environ.get("CONVEYOR_FAKE_MODELS", "composer-2.5,gpt-5").split(",")))
         return
@@ -44,16 +67,24 @@ def main():
     role = os.environ.get("CONVEYOR_ROLE", "")
     m = re.search(r"^Task: (\S+)", prompt, re.M)
     task = m.group(1) if m else ""
+    smoke = not task  # a smoke run carries no `Task:` line
+    root = os.environ.get("CONVEYOR_ROOT", "")
     script = os.environ.get("CONVEYOR_FAKE_SCRIPT", "")
     if os.path.isdir(script):
-        alt = os.path.join(script, role + ".resume")
-        script = alt if "--resume" in args and os.path.exists(alt) else os.path.join(script, role)
-    if not task or not script or not os.path.isfile(script):  # smoke test: no Task: line
+        if smoke:
+            script = os.path.join(script, role + ".smoke")
+        else:
+            alt = os.path.join(script, role + ".resume")
+            script = alt if "--resume" in args and os.path.exists(alt) else os.path.join(script, role)
+    if smoke and not (script and os.path.isfile(script)):
+        return default_smoke(role)
+    if not script or not os.path.isfile(script):
         return emit(type="result", text="ok")
     with open(script) as f:
         lines = f.read().splitlines()
     for lineno, line in enumerate(lines, 1):
-        parts = shlex.split(line.replace("$TASK", task).replace("$ROLE", role).replace("\\n", "\n"))
+        parts = shlex.split(line.replace("$TASK", task).replace("$ROLE", role)
+                            .replace("$ROOT", root).replace("\\n", "\n"))
         if not parts or parts[0].startswith("#"):
             continue
         if parts[0] == "once":
@@ -85,6 +116,20 @@ def main():
         elif cmd == "write":
             with open(rest[0], "w") as f:
                 f.write(rest[1])
+        elif cmd == "probe-write":
+            os.makedirs(os.path.dirname(rest[0]), exist_ok=True)
+            with open(rest[0], "w") as f:
+                f.write(rest[1])
+        elif cmd == "commit-amend-trailer":
+            # Empty commit (the hook appends the byline), then amend to add a
+            # trailer after it -- the E_NO_BYLINE case attribution can produce.
+            subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "conveyor smoke"],
+                           check=True)
+            body = subprocess.run(["git", "log", "-1", "--format=%B"], capture_output=True,
+                                  text=True, check=True).stdout.rstrip("\n")
+            subprocess.run(["git", "commit", "-q", "--amend", "--allow-empty", "--no-verify",
+                            "-m", body + "\n\n" + rest[0]], check=True)
+            emit(type="tool", name="git commit --amend", output=rest[0])
         elif cmd == "handoff":
             r = subprocess.run(["handoff.sh", "./tmp/handoff.txt"], capture_output=True, text=True)
             emit(type="tool", name="handoff.sh", exit=r.returncode, output=r.stdout + r.stderr)

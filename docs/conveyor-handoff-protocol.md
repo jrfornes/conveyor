@@ -665,7 +665,7 @@ The last role's block instead lists the `findings` and `pass` rows and states th
 
 ```
 cd $CONVEYOR_WORKTREE
-$CONVEYOR_AGENT_BIN -p --force --model <model> --output-format stream-json [<cli-args>] [--resume <session>] "<prompt>" 2>&1 \
+$CONVEYOR_AGENT_BIN -p --force --trust --sandbox disabled --model <model> --output-format stream-json [<cli-args>] [--resume <session>] "<prompt>" 2>&1 \
     | role-loop.sh --stamp >> $CONVEYOR_ROOT/.conveyor/logs/<role>/<task>_<id>_a<attempt>.jsonl
 ```
 

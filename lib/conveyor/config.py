@@ -296,7 +296,9 @@ def save(root, cfg):
     if glob_lines:
         lines.extend(glob_lines)
     else:
-        lines.append("[global]\nagent_bin = cursor-agent\nagent_args = --trust\npoll_seconds = 2\n")
+        # --trust is in the loop's fixed argument list now (cursor-cli-runtime.md
+        # decision 1); save() no longer seeds agent_args with it.
+        lines.append("[global]\nagent_bin = cursor-agent\npoll_seconds = 2\n")
     util.atomic_write(path, "".join(lines))
 
 
