@@ -21,11 +21,14 @@ import {
     <div class="bar">
       <h2>Inbox</h2>
       <span class="grow"></span>
-      <button mat-stroked-button (click)="toggleIntake.emit()">
+      <button mat-stroked-button (click)="toggleIntake.emit()" [disabled]="busy">
         {{ intakeOpen ? 'Close intake' : 'Intake settings' }}
       </button>
-      <button mat-stroked-button (click)="importTickets.emit()">Import</button>
+      <button mat-stroked-button (click)="importTickets.emit()" [disabled]="busy">Import</button>
     </div>
+    @if (busyMessage) {
+      <div class="busy-note" role="status">{{ busyMessage }}</div>
+    }
     @if (intakeBusy) {
       <div class="busy-note" role="status">
         Ticket-reviewer is busy{{ intakeBusyTask ? ' with ' + intakeBusyTask : '' }} —
@@ -35,7 +38,7 @@ import {
     @if (!items.length) {
       <div class="empty">
         <p>Inbox is empty.</p>
-        <button mat-flat-button (click)="importTickets.emit()">Import</button>
+        <button mat-flat-button (click)="importTickets.emit()" [disabled]="busy">Import</button>
       </div>
     } @else {
       <table mat-table [dataSource]="items" class="inbox">
@@ -147,6 +150,8 @@ export class InboxTableComponent {
   @Input() intakeOpen = false;
   @Input() intakeBusy = false;
   @Input() intakeBusyTask: string | null = null;
+  @Input() busy = false;
+  @Input() busyMessage = '';
   @Output() importTickets = new EventEmitter<void>();
   @Output() toggleIntake = new EventEmitter<void>();
   @Output() grade = new EventEmitter<string>();

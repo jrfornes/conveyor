@@ -9,6 +9,8 @@ export class UiStateService {
   readonly live = signal(false);
   readonly error = signal('');
   readonly busy = signal(false);
+  /** Short status shown in the inbox busy banner while busy is true. */
+  readonly busyMessage = signal('');
   /** Poll failing while a previous state is still on screen. */
   readonly stale = computed(() => !this.live() && this.state() !== null);
   private sub?: Subscription;

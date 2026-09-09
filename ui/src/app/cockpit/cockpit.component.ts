@@ -11,9 +11,8 @@ import { InboxTableComponent } from '../inbox-table/inbox-table.component';
 import { IntakeSettingsRailComponent } from '../intake/intake-settings-rail.component';
 import { TaskDetailDialogComponent } from '../dialogs/task-detail-dialog.component';
 import { SpecApproveDialogComponent } from '../dialogs/spec-approve-dialog.component';
-import { ImportDialogComponent } from '../dialogs/import-dialog.component';
 import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
-import { openImportSummary, runPostImportGrading } from '../import-flow';
+import { openImport } from '../import-flow';
 
 @Component({
   selector: 'app-cockpit',
@@ -45,6 +44,8 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
             [intakeOpen]="showIntake"
             [intakeBusy]="ui.state()?.intake?.busy ?? false"
             [intakeBusyTask]="ui.state()?.intake?.task ?? null"
+            [busy]="ui.busy()"
+            [busyMessage]="ui.busyMessage()"
             (toggleIntake)="showIntake = !showIntake"
             (importTickets)="openImport()"
             (grade)="runIntake($event, false)"
@@ -160,21 +161,7 @@ export class CockpitComponent {
   }
 
   openImport(): void {
-    const ref = this.dialog.open(ImportDialogComponent, { width: '560px' });
-    ref.afterClosed().subscribe((v) => {
-      if (!v) return;
-      this.ui.busy.set(true);
-      this.api.importTickets(v.source, v.title, v.body).subscribe({
-        next: (r) => {
-          openImportSummary(this.dialog, r.message || 'Imported');
-          runPostImportGrading(this.api, this.ui, r.message || '', v.grade);
-        },
-        error: (e) => {
-          this.ui.busy.set(false);
-          this.ui.fail(e, 'Import failed');
-        },
-      });
-    });
+    openImport(this.dialog, this.api, this.ui);
   }
 
   runIntake(id: string, improve: boolean): void {

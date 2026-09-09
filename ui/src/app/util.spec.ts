@@ -1,4 +1,4 @@
-import { beltRoutes, formatAge, handoffLabel, parseImportMessage, slugify, tasksInLane } from './util';
+import { beltRoutes, formatAge, gradingBusyMessage, handoffLabel, importBusyMessage, parseImportMessage, slugify, tasksInLane } from './util';
 
 describe('util', () => {
   const tasks = [
@@ -78,5 +78,15 @@ describe('util', () => {
   it('parses refresh output', () => {
     const summary = parseImportMessage('refreshed proj-9  Updated title');
     expect(summary.refreshed).toEqual([{ id: 'proj-9', title: 'Updated title' }]);
+  });
+
+  it('builds import busy messages', () => {
+    expect(importBusyMessage('jira')).toBe('Importing from Jira…');
+    expect(importBusyMessage('manual')).toBe('Importing…');
+  });
+
+  it('builds grading busy messages', () => {
+    expect(gradingBusyMessage(0, 1)).toBe('Grading…');
+    expect(gradingBusyMessage(1, 3)).toBe('Grading ticket 2 of 3…');
   });
 });
