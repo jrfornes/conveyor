@@ -43,6 +43,17 @@ plans 3–6 are deliberately not written up front.
 | [Run deadlines](run-deadlines.md) | `max_minutes` kills the run; `E_GATE_TIMEOUT` bounds gates. Process-group kill, no watchdog / B.2. **built** |
 | [Token cost](token-cost.md) | Per-run usage sidecars, `conveyor cost`, `max_tokens` ceiling. PRD B.7 metering half; not loop detection. **built** — step 0 (a live run to confirm what `cursor-agent` reports) is still open |
 
+## Before M3 — Cursor CLI residue
+
+Conveyor was designed against Claude Code and switched to Cursor CLI. `bin/` and `lib/` made the switch; these plans cover what the switch did not re-examine.
+
+| Doc | Use |
+| --- | --- |
+| [Cursor CLI runtime](cursor-cli-runtime.md) | Fixed agent args (`--trust`, `--sandbox disabled`); `conveyor start` smoke proves the out-of-worktree write and the byline; runbook section on `~/.cursor/cli-config.json`. Not a second backend / B.1. **planned** |
+| [Token cost on Cursor](token-cost-on-cursor.md) | Closes token-cost step 0 from the smoke log: extend `usage.ALIASES` if Cursor reports usage, else say `max_tokens` is inert everywhere it is advertised. Not an estimate. **planned** |
+| [Generated handoff contract](generated-handoff-contract.md) | Render `## Handoff contract` into the `.mdc` from `conveyor.conf`; drop it from role files and `REQUIRED_ROLE_HEADINGS`; amend PRD CON-3. Role files become craft only. Not hiding prompts. **planned** |
+| [Cursor docs alignment](cursor-docs-alignment.md) | North star line 67 describes the `.mdc` mechanism; `AGENTS.md` points at `CLAUDE.md`. Text only. **planned** |
+
 ## Scans
 
 | Doc | Use |
