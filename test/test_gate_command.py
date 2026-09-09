@@ -217,6 +217,20 @@ coder ready: test, missing
         self.assertIn("unknown gate", r.stderr + r.stdout)
         self.assertIn("missing", r.stderr + r.stdout)
 
+    def test_gate_run_dies_on_its_own_budget(self):
+        self.coder_ready()
+        self.write_project("coder", "# Project\n\n## Test command\n\n```\nsleep 600\n```\n"
+                                    "\n## Gate timeouts\n\ntest: 1\n")
+        r = self.fx.conveyor("gate", "run", "test", "--role", "coder", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        out = r.stdout + r.stderr
+        self.assertIn("test timed out after 1s", out)
+        self.assertIn(".conveyor/logs/gates/", out)
+        names = self.gates_names()
+        self.assertEqual(len(names), 1, names)
+        with open(os.path.join(self.fx.paths.gates, names[0]), encoding="utf-8") as f:
+            self.assertTrue(f.read().startswith("exit: timeout\n"))
+
     def test_gate_run_matches_handoff(self):
         self.coder_ready()
         inner = "echo gate-cli; exit 0"

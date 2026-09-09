@@ -385,6 +385,49 @@ Where the protocol left a choice, the refusing option was taken.
     loop finds its handoff (invariant 11). Lines are dated when read, which for
     an agent that buffers is the time Conveyor saw them, not the time the agent
     produced them.
+49. **A killed run is not a failed attempt.** `max_minutes` is now a deadline on
+    the agent process as well as a pre-flight check (§6.6, §6.9). When it fires,
+    `attempt` does not advance and there is no `--resume` retry: the budget a
+    retry would spend is the one that just ran out, so a killed run parks
+    `max-minutes` straight away. The park detail says which check fired —
+    `killed attempt <n> after …` for the deadline, the old
+    `task started <ts>, …` for the pre-flight check.
+50. **The outbox wins over the kill.** After a deadline kill the loop re-checks
+    the outbox *before* parking, so an agent that queued a valid handoff and then
+    wedged still has its item forwarded. Anything else would make the kill a
+    second signal about whether work happened, and the outbox is the only one
+    (PRD §5).
+51. **A 60 s floor on the run deadline.** The deadline is
+    `max(60, max_minutes × 60 − age(started_at))`. `max_minutes = 0` is legal and
+    means "park on the next pass"; without the floor it would instead kill every
+    run the instant it started, and §6.6 promises a just-started task one
+    attempt. The floor is the only place a run may outlive the task budget.
+    The operator's number is otherwise taken at face value: a wedged run under
+    `max_minutes = 120` dies after two hours, because guessing a tighter bound
+    would kill legitimately long builds.
+52. **Kills are process-group kills.** The agent is launched with
+    `start_new_session`, and the deadline — and `conveyor stop --now` — signal
+    `os.killpg`, not the leader. A child that inherited the agent's stdout keeps
+    the stamper blocked on an EOF that never arrives, so terminating the leader
+    alone trades one hang for another. `start_new_session` had to land in the
+    same change: without it the agent shares the loop's group and a `killpg`
+    would kill the loop itself. Signalling a group whose members have all exited
+    raises `ProcessLookupError` — that is the success case, so the calls are
+    wrapped, never checked first.
+53. **Gates need their own group *and* a handler in `handoff.sh`.** A gate runs
+    under `shell=True`, where a plain `communicate(timeout=…)` kills the shell and
+    orphans the command that is actually stuck — so gates get
+    `start_new_session` too, and the timeout kills the group. That group is not
+    the agent's, so it would survive the deadline kill above; `handoff.sh`
+    therefore installs a `SIGTERM` handler that kills the gate in flight before
+    exiting. Without it, decision 52 leaves an `nx build` running forever.
+54. **A gate timeout is a refusal, not a death.** The run deadline already bounds
+    gates transitively, but opaquely: the run dies and the agent learns nothing.
+    `E_GATE_TIMEOUT` turns the same event into an ordinary `handoff.sh` failure
+    with repair text the agent can act on inside its remaining attempts. The
+    timed-out gate writes the same log shape as a failed one — same path, partial
+    output, `exit: timeout` on the first line — so there is nothing new to learn
+    when reading a failure.
 
 ## Not built (PRD Appendix B)
 

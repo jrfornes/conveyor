@@ -81,6 +81,33 @@ class WriteInbox(unittest.TestCase):
         self.assertEqual(cfg.inbox.ticket_reviewer_model, "gpt-5")
         self.assertNotIn("poll_seconds", vars(cfg.inbox))
 
+    def test_gate_timeout_round_trips_and_save_leaves_the_file_alone(self):
+        original = ROLES + "\ngate none\n\n[global]\npoll_seconds = 2\ngate_timeout = 300\n"
+        _write(self.tmp, original)
+        cfg = config.load(self.tmp)
+        self.assertEqual(cfg.gate_timeout, 300)
+        config.save(self.tmp, cfg)
+        # [global] is kept verbatim, so a config carrying gate_timeout survives a save.
+        self.assertIn("gate_timeout = 300\n", read(os.path.join(self.tmp, "conveyor.conf")))
+        self.assertEqual(config.load(self.tmp).gate_timeout, 300)
+
+    def test_gate_timeout_defaults_and_is_not_written_unasked(self):
+        _write(self.tmp, ROLES + "\ngate none\n\n[global]\npoll_seconds = 2\n")
+        cfg = config.load(self.tmp)
+        self.assertEqual(cfg.gate_timeout, 900)
+        config.save(self.tmp, cfg)
+        self.assertNotIn("gate_timeout", read(os.path.join(self.tmp, "conveyor.conf")))
+
+    def test_gate_timeout_rejects_a_non_integer(self):
+        _write(self.tmp, ROLES + "\n[global]\ngate_timeout = soon\n")
+        with self.assertRaises(config.ConfigError) as ctx:
+            config.load(self.tmp)
+        self.assertIn("gate_timeout = 900", str(ctx.exception))
+
+    def test_gate_timeout_zero_is_unbounded(self):
+        _write(self.tmp, ROLES + "\n[global]\ngate_timeout = 0\n")
+        self.assertEqual(config.load(self.tmp).gate_timeout, 0)
+
     def test_rejects_unknown_keys_and_hashes(self):
         _write(self.tmp, ROLES)
         with self.assertRaises(config.ConfigError):

@@ -48,6 +48,7 @@ class Config:
     agent_bin: str = "cursor-agent"
     agent_args: list = field(default_factory=list)
     poll_seconds: float = 2.0
+    gate_timeout: int = 900         # seconds a project gate may run; 0 = unbounded
     agent_version: str = ""
     integration: str = "merge"      # "merge" | "hold" | "command: <cmd>"
     integration_base: str = ""      # optional PR/merge target for command mode
@@ -188,6 +189,13 @@ def load(root):
         cfg.agent_args = shlex.split(glob["agent_args"])
     if "poll_seconds" in glob:
         cfg.poll_seconds = float(glob["poll_seconds"])
+    if "gate_timeout" in glob:
+        raw = glob["gate_timeout"].strip()
+        if not re.fullmatch(r"\d+", raw):
+            raise ConfigError(
+                "gate_timeout must be a non-negative number of seconds (0 = unbounded); "
+                "repair: set gate_timeout = 900 under [global]")
+        cfg.gate_timeout = int(raw)
     cfg.agent_version = glob.get("agent_version", "")
     cfg.integration = glob.get("integration", "merge").strip() or "merge"
     integration_parts(cfg.integration)  # validate; raises ConfigError on a bad value

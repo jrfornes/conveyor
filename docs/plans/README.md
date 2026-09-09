@@ -40,7 +40,7 @@ plans 3–6 are deliberately not written up front.
 | [Work-queue liveness](work-queue-liveness.md) | Per-role `busy` / `idle` / `stopped` / `stalled` / `dead`. `status` is the contract. Not a watchdog / B.2. **planned** |
 | [Log pane mirror](log-pane-mirror.md) | F9 against jsonl: `conveyor log -f`, live dark pane, pop-out `/agents/:role`. Not tmux / B.2. **planned** |
 | [Worktree setup](worktree-setup.md) | `[global] worktree_setup` run on create and on lockfile change, per role. Not a build system. **planned — before the NX target** |
-| [Run deadlines](run-deadlines.md) | `max_minutes` kills the run; `E_GATE_TIMEOUT` bounds gates. Process-group kill, no watchdog / B.2. **planned — before M3** |
+| [Run deadlines](run-deadlines.md) | `max_minutes` kills the run; `E_GATE_TIMEOUT` bounds gates. Process-group kill, no watchdog / B.2. **built** |
 | [Token cost](token-cost.md) | Per-run usage sidecars, `conveyor cost`, `max_tokens` ceiling. PRD B.7 metering half; not loop detection. **planned** |
 
 ## Scans
@@ -51,5 +51,11 @@ plans 3–6 are deliberately not written up front.
 
 ## Baseline
 
-`cd test && python3 -m unittest discover -p 'test_*.py'` → **206 tests, OK, ~165s** (104 → 120 → 206).
+`cd test && python3 -m unittest discover -p 'test_*.py'` → **416 tests, ~430s** (104 → 120 → 206 → 390 → 416).
 Every stage must leave this green.
+
+One known red: `test_inv11_restart.test_kill_running_loops_and_restart` fails in containers
+whose PID 1 does not reap. It `kill -9`s a loop and restarts; the dead loop stays a zombie,
+`util._pid_alive` counts a zombie as alive, and `conveyor start` refuses the role with
+"loop already running". Environment, not code — it fails identically on a clean checkout —
+but a fix belongs with [work-queue liveness](work-queue-liveness.md), which owns liveness.
