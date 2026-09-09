@@ -17,7 +17,8 @@ if sys.version_info < (3, 10):
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
-from conveyor import board, config, handoff, inbox, layout, queue, util  # noqa: E402
+from conveyor import (board, config, handoff, inbox, layout, queue,  # noqa: E402
+                      setup as setuplib, util)
 
 SESSION_RE = re.compile(r'"session_?[iI]d"\s*:\s*"([^"]+)"')
 VALIDATOR_RE = re.compile(r'(?:E_[A-Z_]+|AUDIT_REQUIRED): [^"\\\n]*')
@@ -163,6 +164,7 @@ class Loop:
         task = h["task"]
         print(f"{task}: processing {h['id']} from {h['from']} ({h['verdict']}, {h['commit']})", flush=True)
         park = lambda reason, detail: queue.park(self.paths, path, task, reason, detail)  # noqa: E731
+        before = setuplib.blobs(self.wt, self.cfg) if setuplib.enabled(self.cfg) else {}
         fail = queue.merge(h["commit"], self.wt, self.role)
         if fail:
             reason, detail = fail
@@ -171,6 +173,8 @@ class Loop:
                 f"(git rm --cached), then run: conveyor resume {task}")
             return park(reason, f"merging {h['commit']} into conveyor-{self.role} {detail}{repair}")
         util.crash_point("after-merge")
+        if not self.worktree_setup(task, park, before, h["commit"]):
+            return
         intake = self.role == config.INTAKE_ROLE
         row = None if intake else board.get(self.paths, task)
         if not intake and row is None:
@@ -253,6 +257,36 @@ class Loop:
         budget = self.me.max_minutes * 60
         remaining = budget - util.age_seconds(started) if started else budget
         return max(60, remaining)
+
+    def worktree_setup(self, task, park, before, commit):
+        """Protocol §6.3: make the merged tree runnable again before the agent sees it.
+
+        The merge that just landed can carry a lockfile the tree's installed
+        dependencies predate. Left alone, the role's own gate then fails on a
+        missing module rather than on the task -- and for a reviewer that
+        becomes a finding against the coder's correct work. Runs before the
+        ceiling checks, so a stale tree never reaches an agent, and inside the
+        item's max_minutes budget, so an install that eats the whole budget is
+        visible as max-minutes rather than exempt from it. False = parked."""
+        need, reason = setuplib.needs_run(self.paths, self.wt, self.cfg, self.role)
+        if not need:
+            return True
+        label = setuplib.label(reason, setuplib.diff_names(before, setuplib.blobs(self.wt, self.cfg)))
+        print(f"{task}: setup ({label}) …", flush=True)
+        r = setuplib.run(self.paths, self.paths.root, self.wt, self.cfg, self.role,
+                         reason, commit=commit)
+        if not r.ok:
+            detail = (f"timed out after {self.cfg.worktree_setup_timeout}s" if r.timed_out
+                      else f"exited {r.code}")
+            print(f"{task}: setup {detail}", flush=True)
+            park("setup-failed", f"worktree setup {detail} after merging {commit}; "
+                 f"see logs/{self.role}/setup.log, then run: conveyor resume {task}")
+            return False
+        print(f"{task}: setup ok, {util.duration(r.seconds)}", flush=True)
+        names, total = setuplib.dirty_paths(self.wt)
+        if total:
+            print(setuplib.format_dirty(self.wt, names, total), flush=True)
+        return True
 
     def valid_outbox_count(self):
         n = 0

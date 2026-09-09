@@ -42,7 +42,7 @@ re-init of a pre-Stage-4 repo. It never commits — review and commit yourself. 
 ## Layout
 
 ```
-bin/conveyor          operator CLI: init | uninstall | start | stop | task | status | log | resume
+bin/conveyor          operator CLI: init | uninstall | start | stop | setup | task | status | log | resume
                       | import [--refresh/--replace] | intake [config|jira|<id>] | inbox list/show/approve/skip/attachments | start-task
                       | approve | reject | workflow …
 bin/conveyor-ui       optional localhost cockpit (`--demo` throwaway fixture)
@@ -50,8 +50,10 @@ bin/handoff.sh        validator + audit gate (protocol §4–5)
 bin/role-loop.sh      per-role loop (protocol §6); --once for tests
 bin/merge.sh          protocol §7
 bin/hooks/commit-msg  byline hook, copied into the shared .git/hooks by conveyor start
-lib/conveyor/         util (timestamps, atomic write, locks), config, layout, handoff (format),
-                      board (TSV), queue (merge, sweep, park, dequeue, seq), intake, jira,
+bin/hooks/npm-worktree-setup  worked example for [global] worktree_setup (copy and edit)
+lib/conveyor/         util (timestamps, atomic write, locks, bounded commands), config, layout,
+                      handoff (format), board (TSV), queue (merge, sweep, park, dequeue, seq),
+                      setup (worktree dependency setup), intake, jira,
                       presets, workflows, inbox, adapters, agent
 test/fake-agent       protocol §11 fixture
 test/                 test_inv01..12_*.py (one per §9 invariant), test_m0..m4_*.py, test_errors.py
@@ -428,6 +430,48 @@ Where the protocol left a choice, the refusing option was taken.
     timed-out gate writes the same log shape as a failed one — same path, partial
     output, `exit: timeout` on the first line — so there is nothing new to learn
     when reading a failure.
+
+55. **Worktree setup keys a content stamp, never mtime.** `setup.stamp` hashes
+    the blob oid of each `worktree_setup_paths` entry at the worktree's HEAD
+    (`git rev-parse --verify --quiet HEAD:<path>`, `-` when absent), not file
+    contents and not mtimes. A merge rewrites mtimes constantly and none of it
+    is evidence; the oids come from git, so they cannot disagree with what was
+    actually merged.
+56. **The setup command is part of the stamp.** Changing `worktree_setup`
+    re-runs it in every tree — what an operator who just fixed their install
+    command expects. The consequence is that a cosmetic edit to the command
+    string costs one install per role.
+57. **`setup.stamp` is written only on exit 0.** A failed or timed-out install
+    leaves no stamp, so the next `conveyor start` or the next merge tries
+    again rather than trusting a half-populated tree. `conveyor start
+    --no-setup` likewise writes none.
+58. **A dirty tree after setup warns, it does not refuse.** `handoff.sh`
+    refuses an uncommitted tree (`E_DIRTY`) and no agent can fix that from
+    inside, so the warning names the first five paths and the total. Conveyor
+    cannot guess which paths an operator's install creates — `check_ignores`
+    manages only its own four entries — so it says what it sees and leaves the
+    `.gitignore` to the operator. `git status` is run with
+    `--untracked-files=all` there: an install that drops 4000 files under one
+    unignored directory should read as 4000, not as one collapsed entry.
+59. **Setup is skipped, with a warning, for a role whose loop is live.**
+    `conveyor start` is re-runnable and is routinely run against a belt that is
+    already up; installing into a tree an agent is working in corrupts the run.
+    The same precedent already governs the committed-`.gitignore` repair. It
+    also makes protocol §2.3's single writer for `setup.stamp` true by
+    construction: `start` only ever sets up idle trees, and a loop only ever
+    sets up its own.
+60. **A completed setup prints `ok, <duration>`, never `skipped`.** The plan's
+    sketch showed a `setup skipped (command exited 0, nothing to do)` line for
+    a role whose hook no-ops. Conveyor cannot know that — the command is
+    opaque and exit 0 is exit 0 — so it reports what it observed. A hook that
+    skips a role should say so on its own stdout.
+
+61. **`run_bounded` is a second caller of `kill_group`, not a second mechanism.**
+    The worktree-setup plan and `docs/plans/run-deadlines.md` both needed a
+    bounded shell command in its own process group; whichever landed first was
+    to carry the helper. Run deadlines landed `kill_group` (ambiguity 52), so
+    `run_bounded` wraps it rather than repeating the TERM-then-KILL escalation,
+    and there is one duration formatter (`util.duration`) rather than two.
 
 ## Not built (PRD Appendix B)
 

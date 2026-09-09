@@ -16,6 +16,37 @@ class RenameOnly(ConveyorTest):
             for f in files:
                 self.assertFalse(f.endswith(".tmp"), os.path.join(dirpath, f))
 
+    def test_setup_stamp_is_replaced_by_rename_never_appended(self):
+        """setup.stamp is per-role queue state: written like seq, never in place."""
+        import test_worktree_setup as ws
+
+        fx = self.fx
+        recorder = os.path.join(fx.tmp, "recorder.py")
+        out = os.path.join(fx.tmp, "setup-runs.txt")
+        with open(recorder, "w") as f:
+            f.write(ws.RECORDER)
+        with open(os.path.join(fx.root, "lock.txt"), "w") as f:
+            f.write("v1\n")
+        fx.git("add", "-A")
+        fx.git("commit", "-q", "-m", "Add lock.txt")
+        fx.set_global(f"worktree_setup = python3 {recorder} {out}\n"
+                      "worktree_setup_paths = lock.txt")
+        fx.start()
+        fx.conveyor("stop")
+        stamp = os.path.join(fx.paths.role("coder").base, "setup.stamp")
+        first = read(stamp)
+        self.assertRegex(first, r"^[0-9a-f]{64}\n$")
+        with open(os.path.join(fx.paths.worktree("coder"), "lock.txt"), "w") as f:
+            f.write("v2\n")
+        fx.git("add", "-A", cwd=fx.paths.worktree("coder"))
+        fx.git("commit", "-q", "-m", "Bump the lockfile", cwd=fx.paths.worktree("coder"))
+        fx.start()
+        fx.conveyor("stop")
+        # Replaced wholesale, not appended to: still exactly one line, a new one.
+        self.assertRegex(read(stamp), r"^[0-9a-f]{64}\n$")
+        self.assertNotEqual(read(stamp), first)
+        self.assertFalse(os.path.exists(stamp + ".tmp"))
+
     def test_code_never_opens_queue_files_for_writing(self):
         """Static check: the only writers are atomic_write (tmp + rename) and handoff.write."""
         sources = [os.path.join(REPO, "lib", "conveyor", f) for f in os.listdir(os.path.join(REPO, "lib", "conveyor")) if f.endswith(".py")]

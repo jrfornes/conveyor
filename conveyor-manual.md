@@ -222,6 +222,18 @@ Launching is `conveyor start`; supervision is `conveyor status`, `conveyor log`,
   to `sent/`, idempotent by handoff `id`. No separate daemon process.
 - **Shutdown:** `conveyor stop` waits for in-flight agent runs; `conveyor stop --now` sends
   TERM, leaves items in `in_process/` for resume on next start.
+- **Worktree setup** (optional, `[global] worktree_setup`): each role's tree is its own
+  worktree and does not share `node_modules` / a virtualenv / `vendor/` with the others, so
+  on a project whose gates need installed dependencies, one operator-supplied command makes
+  each tree runnable. It runs at `conveyor start` for a tree that is new or whose
+  `worktree_setup_paths` moved, and in the role loop right after a merge that moved one of
+  those paths — the second is the half that matters: a reviewer that merges the coder's new
+  lockfile into a stale tree fails its gate on a missing module and sends findings against
+  correct work. Keyed on a content stamp (blob oids at HEAD plus the command), never mtimes.
+  Nonzero exit stops `conveyor start` before any loop launches, or parks the task
+  `setup-failed`. Conveyor never detects a package manager; `bin/hooks/npm-worktree-setup`
+  is a worked example to copy and edit. Whatever the command creates must be in the
+  `.gitignore` committed on the role branches — `handoff.sh` refuses a dirty tree.
 - **No watchdog, no tmux, no caffeinate** in MVP (B.2, B.8).
 
 **Run checklist**
@@ -408,7 +420,7 @@ Conveyor treats ceilings as first-class MVP features, not afterthoughts.
   `max-retries`.
 - **Attempt ceiling:** `max_attempts` per role per task; parks when the agent fails to produce
   a valid handoff.
-- **Other park reasons:** `merge-conflict`, `untracked-collision`, `multiple-handoffs`, `no-rules`, `no-agent`, `no-task-file`, `done-command`.
+- **Other park reasons:** `merge-conflict`, `untracked-collision`, `multiple-handoffs`, `no-rules`, `no-agent`, `no-task-file`, `setup-failed`, `done-command`.
   `untracked-collision` is git refusing to overwrite an untracked file: nothing merged, and the repair is to remove or untrack the files the `reason` line names, not to resolve a conflict.
 - **`conveyor resume <task>`** moves the parked item back to a role's inbox; counters are
   **never reset** — raise ceilings in config or delete and recreate the task.

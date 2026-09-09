@@ -1,4 +1,5 @@
-"""Timestamps, atomic writes, mkdir locks, process-group kill, git helper."""
+"""Timestamps, atomic writes, mkdir locks, process-group kill, bounded commands,
+git helper."""
 import contextlib
 import datetime
 import os
@@ -175,6 +176,41 @@ def lock(path, timeout=None):
             os.remove(os.path.join(path, "pid"))
         with contextlib.suppress(OSError):
             os.rmdir(path)
+
+
+def run_bounded(command, cwd, env, timeout, log_path):
+    """Run a shell command under a deadline; write a gate-style log.
+
+    Returns (returncode, timed_out, seconds). `timeout` of 0 (or None) is
+    unbounded. The command gets its own process group (`start_new_session`)
+    so the deadline reaches the whole tree through kill_group: `shell=True`
+    with a plain `communicate(timeout=...)` kills the shell and orphans
+    whatever it spawned, which for an install is the part that matters.
+
+    Output that arrived before the kill is kept, so the log still shows how
+    far the command got. `returncode` is the shell's exit status, negative
+    when a signal ended it.
+    """
+    started = time.monotonic()
+    p = subprocess.Popen(command, shell=True, cwd=cwd, env=env, text=True,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         start_new_session=True)
+    timed_out = False
+    try:
+        out, err = p.communicate(timeout=timeout or None)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        kill_group(p.pid, p)
+        out, err = p.communicate()
+    seconds = time.monotonic() - started
+    if log_path:
+        if os.path.dirname(log_path):
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        exit_line = "timeout" if timed_out else p.returncode
+        atomic_write(log_path,
+                     f"exit: {exit_line}\ncommand: {command}\n"
+                     f"--- stdout ---\n{out or ''}--- stderr ---\n{err or ''}")
+    return p.returncode, timed_out, seconds
 
 
 def git(args, cwd, env=None, check=True):
