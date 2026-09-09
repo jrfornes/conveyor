@@ -189,6 +189,8 @@ export class RolesPageComponent implements OnInit {
         roleText: role.text,
         assignedSkills: [...(role.skills ?? [])],
         availableSkills: this.workflow.available_skills,
+        contract: role.contract,
+        handwrittenContract: role.handwritten_contract,
       },
     });
     this.roleDialog = ref;

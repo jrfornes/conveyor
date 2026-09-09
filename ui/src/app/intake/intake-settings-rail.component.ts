@@ -77,7 +77,7 @@ import { FailureLike, UiStateService, errorMessage } from '../services/ui-state.
               <button mat-flat-button [disabled]="!promptDirty || promptBusy" (click)="savePrompt()">
                 Save prompt
               </button>
-              <span class="hint">Must contain headings Owns, Does not own, Handoff contract.</span>
+              <span class="hint">Must contain headings Owns, Does not own.</span>
             </div>
             @if (promptError) {
               <p class="err" role="alert">{{ promptError }}</p>

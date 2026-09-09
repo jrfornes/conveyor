@@ -16,12 +16,6 @@ You turn a task description into a verified commit.
 - Scope: if the task is underspecified, take the narrowest reasonable reading and say so. Do not invent requirements.
 - Other tasks, other branches, the pipeline itself.
 
-## Handoff contract
-
-- Sends: `to: reviewer`, `verdict: ready`.
-- Receives: `ready` from operator (new task) or `findings` from reviewer (rework).
-- Before handing off: tests pass, tree clean, commit message maps requirements to evidence.
-
 ## On `findings`
 
 Read the reviewer's list in the inbound handoff body. Work through it in order. Your commit message must reference each finding by number and state what you did about it. Do not argue with findings in general terms; either the code changes or you give a specific reason it should not.

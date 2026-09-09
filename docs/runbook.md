@@ -49,7 +49,7 @@ cursor-agent --list-models
    - install the byline `commit-msg` hook
    - commit any missing `.gitignore` entries (`.worktrees/`, `.conveyor/`, `.cursor/rules/conveyor-role.mdc`, `tmp/`) so role worktrees ignore runtime files — `init` only appends to the working copy
    - create one `.worktrees/<role>` per configured role on branch `conveyor-<role>` (e.g. `.worktrees/coder`, `.worktrees/reviewer` for the default Review belt)
-   - write `.cursor/rules/conveyor-role.mdc` into each (constitution + role, concatenated)
+   - write `.cursor/rules/conveyor-role.mdc` into each (constitution + project + role + generated handoff contract + skills, concatenated)
    - run `worktree_setup` in any tree that is new or whose watched paths moved (step 5), and stop before launching a single loop if it fails
    - copy assigned skill trees from `roles/<role>.skills` into each worktree at the same relative path under `.agents/skills/<name>/` or `.cursor/skills/<name>/` (repo root; `.agents/skills` wins when both exist)
    - create `.conveyor/` queue directories and `board.tsv`

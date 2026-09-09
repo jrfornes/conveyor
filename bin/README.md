@@ -503,6 +503,24 @@ Where the protocol left a choice, the refusing option was taken.
     on live tasks. The sidecar is a derived index of exactly one `.jsonl`, so it sits
     beside it under the same key: no new lock, no new protocol directory, and
     `cmd_log` filters on `.jsonl` and never sees it.
+66. **A hand-written `## Handoff contract` warns, it is neither refused nor
+    stripped.** The handoff contract is generated from `conveyor.conf` into the
+    `.mdc` (`roles.render_contract`); the role file is craft only. An operator
+    upgrading Conveyor under a target repo whose `roles/` still carries the old
+    section must not have `conveyor start` fail on files `init` gave them last
+    month, so `validate_role_text` requires only `Owns` / `Does not own` and the
+    section is accepted. Conveyor does not rewrite operator-owned files and does
+    not parse prose to decide what to drop, so it is not stripped either. The
+    generated block's first sentence ("This section overrides any hand-written
+    contract above it") resolves the ambiguity for the agent; `conveyor start`
+    prints one warning per offending role for the operator.
+67. **The `findings` empty-commit rule is mechanics; the `pass` empty-commit
+    preference is craft.** `findings` from the last role *requires* a commit that
+    is not the inbound one — that is `E_NO_CHANGE`'s repair text — so it is
+    generated into the contract block. For `pass`, an empty commit is only
+    *preferred* (the inbound commit unchanged is permitted), so it is a judgement
+    call the operator may tune and stays in `roles/reviewer.md` under
+    `## How to review`.
 
 ## Not built (PRD Appendix B)
 

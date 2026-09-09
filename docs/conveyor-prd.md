@@ -169,7 +169,7 @@ Components (all shell or one small scripting language, a few hundred lines total
 |---|---|---|
 | CON-1 | M | Layered files, all versioned in the repo: `constitution/engineering.md`, `constitution/workflow.md`, `constitution/handoffs.md`, `project.md`, `roles/coder.md`, `roles/reviewer.md`. `constitution.md` declares precedence. |
 | CON-2 | M | `conveyor start` concatenates these into each worktree's `.cursor/rules/conveyor-role.mdc`. |
-| CON-3 | M | Each role file ≤ 2 pages with `## Owns`, `## Does Not Own`, `## Handoff contract`. |
+| CON-3 | M | Each role file ≤ 2 pages with `## Owns` and `## Does not own`. The handoff contract is generated from `conveyor.conf` into the rules file (CON-2) and is not part of the role file. |
 | CON-4 | M | Task intent lives in `tasks/<name>.md`, committed by the operator, re-read by agents as operator intent. |
 
 ### 7.7 Board and ceilings (BUD)

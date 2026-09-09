@@ -26,11 +26,13 @@ class RolesLib(unittest.TestCase):
     def _agents_skill(self, name, body="# Skill\n\nFrom agents.\n"):
         self._skill(name, body, catalog=".agents/skills")
 
-    def test_create_stub_has_three_headings(self):
+    def test_create_stub_has_required_headings(self):
         roles.create(self.root, "tester")
         text = read(roles.md_path(self.root, "tester"))
         self.assertTrue(_headings(text))
         self.assertIn("# Role: tester", text)
+        # The handoff contract is generated from conveyor.conf, not the stub.
+        self.assertNotIn("Handoff contract", text)
 
     def test_create_from_copies_md_and_skills(self):
         self._skill("alpha")

@@ -300,13 +300,19 @@ def _hops(cfg, name):
 
 
 def _role_record(root, cfg, name, in_workflow):
+    text = _read_optional(os.path.join(root, "roles", f"{name}.md"))
+    # The handoff contract is generated from conveyor.conf and shown read-only
+    # beside the editor; it is null for a library role off the active belt.
+    contract = roles.render_contract(cfg, name) if name in cfg.names() else None
     rec = {
         "name": name,
         "avatar": workflows.avatar(name),
         "in_workflow": in_workflow,
-        "text": _read_optional(os.path.join(root, "roles", f"{name}.md")),
+        "text": text,
         "hops": _hops(cfg, name),
         "skills": roles.assigned_skills(root, name),
+        "contract": contract,
+        "handwritten_contract": roles.has_handwritten_contract(text),
     }
     if in_workflow:
         r = cfg.role(name)
