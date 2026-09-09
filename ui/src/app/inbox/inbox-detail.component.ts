@@ -15,7 +15,7 @@ import { InboxDetail, InboxItem } from '../models';
 import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
 import { EditSourceDialogComponent } from '../dialogs/edit-source-dialog.component';
 import { AttachmentsDialogComponent } from '../dialogs/attachments-dialog.component';
-import { IntakeReviewDialogComponent } from '../dialogs/intake-review-dialog.component';
+import { handleIntakeReviewResult, subscribeIntakeReview } from '../intake/intake-review';
 import { openImportSummary } from '../import-flow';
 import {
   attachmentLabel,
@@ -401,47 +401,16 @@ export class InboxDetailComponent implements OnInit {
   review(): void {
     const it = this.item;
     if (!it) return;
-    this.api.intakeSettings().subscribe({
-      next: (settings) => {
-        this.dialog
-          .open(IntakeReviewDialogComponent, {
-            width: '900px',
-            maxWidth: '95vw',
-            panelClass: 'intake-review-dialog',
-            data: {
-              ...it,
-              rubric: settings.rubric,
-              grade_contract: settings.grade_contract,
-            },
-          })
-          .afterClosed()
-          .subscribe((v) => {
-            if (!v) return;
-            if (v.action === 'skip') {
-              this.skip();
-              return;
-            }
-            if (v.action === 'reject') {
-              this.ui.startAction();
-              this.api.intake(it.id, true, v.comments).subscribe({
-                next: (r) => this.ok(r.message ?? 'OK'),
-                error: (e) => this.fail(e, 'Improve failed'),
-              });
-              return;
-            }
-            this.ui.startAction();
-            this.api.inboxApprove(
-              it.id,
-              v.name,
-              v.action === 'edit-approve' ? v.text : undefined,
-            ).subscribe({
-              next: (r) => this.ok(r.message ?? 'OK'),
-              error: (e) => this.fail(e, 'Approve failed'),
-            });
-          });
+    subscribeIntakeReview(
+      this.dialog,
+      this.api,
+      it.id,
+      (result) => {
+        handleIntakeReviewResult(result, { ui: this.ui, snack: this.snack, router: this.router });
+        if (result) this.load();
       },
-      error: (e) => this.fail(e, 'Load failed'),
-    });
+      (message) => this.fail({ message }, message),
+    );
   }
 
   skip(): void {

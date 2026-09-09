@@ -82,8 +82,18 @@ export class ConveyorApiService {
     return this.http.post<{ ok: boolean; message: string }>(`${this.base}/intake`, { id, improve, comments });
   }
 
-  inboxApprove(id: string, name?: string, text?: string): Observable<{ ok: boolean; message: string }> {
-    return this.http.post<{ ok: boolean; message: string }>(`${this.base}/inbox/approve`, { id, name, text });
+  inboxApprove(
+    id: string,
+    name?: string,
+    text?: string,
+    force = false,
+  ): Observable<{ ok: boolean; message: string }> {
+    return this.http.post<{ ok: boolean; message: string }>(`${this.base}/inbox/approve`, {
+      id,
+      name,
+      text,
+      force: force || undefined,
+    });
   }
 
   inboxSkip(id: string): Observable<{ ok: boolean; message: string }> {

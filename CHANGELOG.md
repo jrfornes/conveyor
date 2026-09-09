@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**Intake review**
+
+- Cockpit **Review** on graded / awaiting-approval inbox rows opens a two-pane dialog (original
+  ticket | editable proposal) instead of routing through the detail page only.
+- **Approve and start** is the primary action; **Approve only** stocks `tasks/<name>.md` without
+  enqueueing. Approve always commits the textarea (no separate “Edit then approve”).
+- **Improve again** keeps the dialog open; Approve and Improve notes are mutually exclusive.
+- Gaps strip, quoted/invented markers, attachment summary, and force-approve for bad grades.
+
 **Worktree setup**
 
 - **`[global] worktree_setup` makes a role's tree runnable.** Every role works in its own git
