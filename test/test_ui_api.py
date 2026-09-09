@@ -119,6 +119,30 @@ class UiApiTest(unittest.TestCase):
         self.assertEqual(demo["total"]["total"], 97300)
         self.assertEqual(cost["total"]["total"], 97300)
 
+    def test_state_tasks_carry_the_board_card_token_badge(self):
+        from conveyor import usage
+        demo = next(t for t in get(f"{self.base}/api/state")["tasks"] if t["name"] == "demo")
+        # Nothing has run: no badge at all, and the total is unknown, not zero.
+        self.assertEqual(demo["run_count"], 0)
+        self.assertIsNone(demo["tokens"])
+        usage.record(self.fx.paths, "coder", "demo", "operator-000001", 1,
+                     usage.scan('{"type":"result","usage":'
+                                '{"input_tokens":88100,"output_tokens":9200}}'), 372.0, 0)
+        usage.record(self.fx.paths, "reviewer", "demo", "coder-000001", 1,
+                     usage.scan(""), 60.0, 0)
+        demo = next(t for t in get(f"{self.base}/api/state")["tasks"] if t["name"] == "demo")
+        self.assertEqual(demo["run_count"], 2, "the silent run still counts as a run")
+        self.assertEqual(demo["tokens"], 97300)
+
+    def test_state_token_total_stays_unknown_when_no_run_reported(self):
+        """The card must be able to say `tok -`: runs happened, none reported."""
+        from conveyor import usage
+        usage.record(self.fx.paths, "coder", "demo", "operator-000001", 1,
+                     usage.scan(""), 12.0, 0)
+        demo = next(t for t in get(f"{self.base}/api/state")["tasks"] if t["name"] == "demo")
+        self.assertEqual(demo["run_count"], 1)
+        self.assertIsNone(demo["tokens"], "unknown is null, never 0")
+
     def test_intake_busy_reflected_in_state(self):
         # /api/state is what the UI polls to disable Grade/Improve while
         # ticket-reviewer's single, shared loop lock is held by another item.

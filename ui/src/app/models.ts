@@ -6,6 +6,12 @@ export interface ConveyorTask {
   retry_count: number;
   created_at: string;
   updated_at: string;
+  /** Tokens billed to this task across every role and attempt; null = no run
+   *  reported usage. Unknown, never zero — `0` is an answer an agent can give. */
+  tokens?: number | null;
+  /** Agent runs recorded for this task. 0 means nothing has run yet, which is
+   *  not the same as runs that ran and reported nothing. */
+  run_count?: number;
 }
 
 export interface WorkEntry {

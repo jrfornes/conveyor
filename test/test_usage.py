@@ -72,6 +72,20 @@ class Scan(unittest.TestCase):
         self.assertIsNone(s["input"])
 
 
+class Human(unittest.TestCase):
+    """`usage.human` is mirrored in TypeScript by `formatTokens` in
+    `ui/src/app/util.ts`. These are the same literals `util.spec.ts` asserts:
+    if you change one table, this test and that spec must move together."""
+
+    def test_token_counts_read_the_same_on_both_sides(self):
+        self.assertEqual(usage.human(None), "-")
+        self.assertEqual(usage.human(0), "0")   # a real answer, distinct from `-`
+        self.assertEqual(usage.human(999), "999")
+        self.assertEqual(usage.human(1000), "1.0k")
+        self.assertEqual(usage.human(450400), "450.4k")
+        self.assertEqual(usage.human(1234567), "1.2M")
+
+
 class Total(unittest.TestCase):
     def runs(self):
         return [{"source": "result", "input": 10, "output": 1, "duration_s": 60.0},

@@ -34,6 +34,12 @@
 - Usage lives in its own files rather than a `board.tsv` column: `board.COLS` is a fixed 8-tuple
   and any row with a different cell count is malformed, so widening it would make every
   pre-existing row invisible to `board.get`. `GET /api/cost` serves the same figures.
+- **The cockpit board card carries a `tok` badge**, next to `audit` and `retry`, so the cost of a
+  task that has been bouncing sits beside the counts that caused it. It reads the same three states
+  the CLI does: no badge when nothing has run, `tok -` when runs reported nothing, and the total
+  otherwise — never `0` for unknown. `/api/state` tasks gain `tokens` (null = unknown) and
+  `run_count`, and parsed sidecars are memoised so the 2 s poll re-stats rather than re-parses
+  every run the project has ever made.
 
 **Worktree setup**
 

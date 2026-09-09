@@ -62,6 +62,29 @@ def _park_task(root, name):
     raise RuntimeError(f"demo: no inbox item to park for {name}")
 
 
+RESULT_USAGE = '{"type":"result","usage":{"input_tokens":%d,"output_tokens":%d}}'
+
+
+def _demo_usage(paths, cfg):
+    """Usage sidecars so the board's `tok` badge has something to show.
+
+    Both states the badge distinguishes are represented: `demo` has runs that
+    reported their spend, `stuck` has runs that reported nothing and reads `tok -`
+    -- unknown, not free. A task with no runs at all carries no badge.
+    """
+    from conveyor import usage
+    first, last = cfg.names()[0], cfg.names()[-1]
+    for role, hid, scan, secs in (
+        (first, "operator-000001", RESULT_USAGE % (88100, 9200), 372),
+        (last, "coder-000001", RESULT_USAGE % (63000, 4100), 189),
+        (first, "reviewer-000001", RESULT_USAGE % (91400, 7800), 305),
+    ):
+        usage.record(paths, role, "demo", hid, 1, usage.scan(scan), secs, 0)
+    # The silent agent: runs happened, none of them said what they cost.
+    usage.record(paths, first, "stuck", "operator-000002", 1, usage.scan(""), 240, 0)
+    usage.record(paths, first, "stuck", "operator-000002", 2, usage.scan(""), 198, 0)
+
+
 def make_demo():
     """Initialized git checkout with queued/parked tasks and inbox items."""
     tmp = tempfile.mkdtemp(prefix="conveyor-ui-demo-")
@@ -109,6 +132,7 @@ def make_demo():
                          "# Cave lighting\n\n1. Add a lantern in the cave.\n")
         inbox.write_file(paths, iid, "comments-applied.txt",
                          "Please include a definition of done.\n")
+        _demo_usage(paths, cfg)
         _park_task(root, "stuck")
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)
