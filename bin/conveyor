@@ -649,9 +649,75 @@ def cmd_setup(args):
         run_worktree_setup(root, paths, cfg, role, wt, what="conveyor setup")
 
 
+SMOKE_PROMPT = (
+    "Conveyor startup smoke test — this is not a task and there is no handoff. "
+    "Do exactly these three things and nothing else; do not run handoff.sh:\n"
+    "1. Reply with the word ok.\n"
+    "2. Write the word ok to the file {root}/tmp/smoke-{role}.txt — it is outside "
+    "this worktree, which is the point of the test.\n"
+    "3. Make one empty commit on this branch: git commit --allow-empty -m 'conveyor smoke'.\n"
+)
+
+
+def _last_nonempty_line(text):
+    lines = [l for l in text.splitlines() if l.strip()]
+    return lines[-1] if lines else ""
+
+
+def smoke_test(root, paths, cfg, role, wt, agent):
+    """Prove <role> can write outside its worktree and commit with the byline
+    before any task is dequeued (cursor-cli-runtime.md decision 4). Returns an
+    error message with repair text, or None on success.
+
+    Records the branch tip, runs the agent against SMOKE_PROMPT, then checks the
+    probe file, that HEAD moved by exactly one commit, and that the commit's last
+    line is the byline. On success — and on any failure where the branch moved by
+    at most one commit — it resets the branch to the tip and removes the probe, so
+    the smoke leaves nothing behind. A branch that moved by more than one commit
+    is left untouched and reported: Conveyor never guesses what to discard."""
+    probe = os.path.join(root, "tmp", f"smoke-{role}.txt")
+    os.makedirs(os.path.join(root, "tmp"), exist_ok=True)
+    with contextlib.suppress(OSError):
+        os.remove(probe)
+    tip = util.git(["rev-parse", "HEAD"], wt)
+    r = cfg.role(role)
+    cmd = agentlib.compose(agent, r.model, [*cfg.agent_args, *r.args])
+    cmd.append(SMOKE_PROMPT.format(root=root, role=role))
+    env = {**os.environ, "CONVEYOR_ROLE": role, "CONVEYOR_WORKTREE": wt, "CONVEYOR_ROOT": root}
+    res = subprocess.run(cmd, cwd=wt, capture_output=True, text=True, env=env)
+    head = util.git(["rev-parse", "HEAD"], wt)
+    count = int(util.git(["rev-list", "--count", f"{tip}..{head}"], wt))
+    if count > 1:
+        return (f"smoke test: conveyor-{role} moved from {tip[:10]} to {head[:10]}; "
+                f"expected exactly one commit. Inspect and reset by hand, then re-run "
+                f"conveyor start")
+    err = None
+    if not (os.path.isfile(probe) and util.read_text(probe).strip() == "ok"):
+        err = (f"smoke test: {role} could not write outside its worktree; the Cursor "
+               f"sandbox is on. Conveyor passes --sandbox disabled; check "
+               f"~/.cursor/cli-config.json sandbox.mode and any --sandbox in cli-args")
+    elif count == 0:
+        code = f" (agent exited {res.returncode})" if res.returncode else ""
+        err = (f"smoke test: {role} did not commit{code}; check ~/.cursor/cli-config.json "
+               f"approvalMode and permissions.deny for Shell(git)")
+    else:
+        last = _last_nonempty_line(util.git(["log", "-1", "--format=%B", head], wt))
+        if last != f"By {role}.":
+            err = (f'smoke test: {role}\'s commit does not end with "By {role}."; last '
+                   f"line is {last}. Set attribution.attributeCommitsToAgent to false in "
+                   f"~/.cursor/cli-config.json")
+    util.git(["reset", "-q", "--hard", tip], wt)
+    with contextlib.suppress(OSError):
+        os.remove(probe)
+    return err
+
+
 def cmd_start(args):
     root, cfg, paths = setup()
     agent = os.environ.get("CONVEYOR_AGENT_BIN", cfg.agent_bin)
+    # Which file did it actually run? The answer to `agent` vs `cursor-agent`
+    # diverging on a machine (cursor-cli-runtime.md decision 5).
+    print(f"agent: {agentlib.resolve(agent, root) or agent} ({agentlib.version(agent)})")
     for r in cfg.roles:
         if not os.path.isfile(os.path.join(root, "roles", f"{r.name}.md")):
             util.die(f"conveyor start: roles/{r.name}.md is missing")
@@ -694,12 +760,13 @@ def cmd_start(args):
             os.remove(rp.stop)
         if "--no-setup" not in args:
             run_worktree_setup(root, paths, cfg, role.name, wt)
-        if "--no-smoke" not in args:
-            env = {**os.environ, "CONVEYOR_ROLE": role.name, "CONVEYOR_WORKTREE": wt, "CONVEYOR_ROOT": root}
-            s = subprocess.run([agent, "-p", "--force", "--model", role.model, *cfg.agent_args,
-                                "reply with the word ok"], cwd=wt, capture_output=True, text=True, env=env)
-            if s.returncode != 0:
-                util.die(f"conveyor start: smoke test failed in {wt}: {s.stderr.strip() or s.stdout.strip()}")
+        # A live role's branch must never be reset under it; its worktree is
+        # already in place, so its handoff path was proven at its own start.
+        if "--no-smoke" not in args and not loop_pid(paths, role.name):
+            err = smoke_test(root, paths, cfg, role.name, wt, agent)
+            if err:
+                util.die(f"conveyor start: {err}")
+            print(f"{role.name}: smoke ok")
     for role in cfg.roles:
         if loop_pid(paths, role.name):
             print(f"{role.name}: loop already running (pid {loop_pid(paths, role.name)})")

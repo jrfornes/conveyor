@@ -15,6 +15,18 @@
   ```
 - Pin the CLI version you tested against in `conveyor.conf` `[global] agent_version =` and let `conveyor start` warn when it differs.
 
+### Cursor CLI configuration
+
+`cursor-agent` reads `~/.cursor/cli-config.json`, and three keys there change what an agent does on its own initiative — before it ever reaches a handoff. Conveyor passes flags that override the first two on every run; the third has no flag and is yours to set. `conveyor start`'s smoke test proves the handoff path per role and names which key to fix when one is wrong.
+
+| Key | Conveyor's flag | If it fights the pipeline (smoke-test message) |
+|---|---|---|
+| `approvalMode` | `--force` (every action allowed) | An agent that cannot run `git` never commits: `<role> did not commit; check ~/.cursor/cli-config.json approvalMode and permissions.deny for Shell(git)`. |
+| `sandbox.mode` | `--sandbox disabled` | A sandboxed shell writes inside the worktree only — not `.conveyor/`, not `.git/hooks` — so there is no handoff and no byline: `<role> could not write outside its worktree; the Cursor sandbox is on …`. |
+| `attribution.attributeCommitsToAgent` | none — no flag exists | A `Made with Cursor` trailer amended after the byline hook pushes `By <role>.` off the last line and every handoff then fails `E_NO_BYLINE`: `<role>'s commit does not end with "By <role>." … Set attribution.attributeCommitsToAgent to false`. |
+
+`--trust` rides in the same fixed list, so a fresh worktree never stalls on a trust prompt in print mode. `CURSOR_API_KEY` is unaffected by any of this.
+
 ## 2. Models
 
 ```
@@ -53,7 +65,8 @@ cursor-agent --list-models
    - run `worktree_setup` in any tree that is new or whose watched paths moved (step 5), and stop before launching a single loop if it fails
    - copy assigned skill trees from `roles/<role>.skills` into each worktree at the same relative path under `.agents/skills/<name>/` or `.cursor/skills/<name>/` (repo root; `.agents/skills` wins when both exist)
    - create `.conveyor/` queue directories and `board.tsv`
-   - run a smoke test (`cursor-agent -p "reply with the word ok"` in each worktree) and check the rules file loaded
+   - run a smoke test per role: prove each role can write outside its worktree and commit with the byline (the two writes the pipeline lives on), printing `<role>: smoke ok` or a message naming which `~/.cursor/cli-config.json` key to fix, and stop before launching a single loop if one fails (`--no-smoke` skips it)
+   - print the resolved agent path and `--version` as the first line, so a divergence between `agent` and `cursor-agent` is visible
    - launch one loop per role
 
 ## 4. Day to day
