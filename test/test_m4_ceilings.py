@@ -101,6 +101,82 @@ class M4Minutes(ConveyorTest):
         self.assertNotEqual(fx.board()["slow"]["started_at"], "-")
 
 
+class M4Tokens(ConveyorTest):
+    """max_tokens: the cost ceiling. Task-wide, checked between attempts, and
+    never fired on a number no agent reported (plan decisions 7, 8, 9)."""
+
+    coder_conf = "max_tokens=1000 max_attempts=3"
+    SPENDS = 'commit "Partial"\nusage 4000 1000\nexit 0\n'
+
+    def test_over_budget_parks_max_tokens(self):
+        fx = self.fx
+        fx.script("coder", self.SPENDS)
+        fx.start()
+        fx.conveyor("stop")
+        fx.task("demo")
+        fx.loop("coder")
+        reason = fx.parked_reason("demo")
+        self.assertEqual(reason[0], "max-tokens")
+        self.assertEqual(reason[1], "5.0k tokens over max_tokens 1000")
+        self.assertEqual(fx.board()["demo"]["lane"], "needs-human")
+
+    def test_park_happens_between_attempts_not_on_the_next_dequeue(self):
+        """One item, one agent run: attempt 1 blows the budget and there is no
+        attempt 2. A ceiling that only fired on the next dequeue would bound nothing."""
+        fx = self.fx
+        fx.script("coder", self.SPENDS)
+        fx.start()
+        fx.conveyor("stop")
+        fx.task("demo")
+        fx.loop("coder")
+        runs = [f for f in sorted(os.listdir(os.path.join(fx.paths.logs, "coder")))
+                if f.endswith(".jsonl")]
+        self.assertEqual(runs, ["demo_operator-000001_a1.jsonl"])
+        self.assertEqual(fx.parked_reason("demo")[0], "max-tokens")
+
+    def test_the_budget_is_task_wide_across_roles(self):
+        """A coder-reviewer bounce is one budget: the reviewer's spend is counted
+        against the coder's ceiling on the way back (decision 7)."""
+        fx = self.fx
+        fx.script("coder", 'commit "Implement $TASK"\nusage 400 100\n'
+                           'draft reviewer $TASK ready\nhandoff\nhandoff\n')
+        fx.script("reviewer", 'commit --empty "Review: $TASK\\n\\n1. requirement 1 - not proven"\n'
+                              'usage 400 200\ndraft coder $TASK findings\nhandoff\nhandoff\n')
+        fx.start()
+        fx.conveyor("stop")
+        fx.task("demo")
+        fx.drive(rounds=6)
+        # 500 (coder) + 600 (reviewer) = 1100 > 1000, though neither role spent it alone.
+        self.assertEqual(fx.parked_reason("demo")[0], "max-tokens")
+        self.assertEqual(fx.parked_reason("demo")[1], "1.1k tokens over max_tokens 1000")
+
+    def test_usage_the_agent_never_reported_does_not_park(self):
+        """Every sidecar `source: none`: the total is unknown, so the ceiling cannot
+        fire. Conveyor refuses rather than parks on a number it invented."""
+        fx = self.fx
+        fx.script("coder", 'commit "Partial"\nexit 0\n')
+        fx.start()
+        fx.conveyor("stop")
+        fx.task("demo")
+        fx.loop("coder")
+        self.assertEqual(fx.parked_reason("demo")[0], "max-attempts")
+
+
+class M4TokensUnset(ConveyorTest):
+    def test_no_max_tokens_never_parks_however_much_is_spent(self):
+        fx = self.fx
+        fx.script("coder", 'commit "Implement $TASK"\nusage 9000000 9000000\n'
+                           'draft reviewer $TASK ready\nhandoff\nhandoff\n')
+        fx.script("reviewer", 'commit --empty "Verified $TASK"\nusage 9000000 9000000\n'
+                              'draft done $TASK pass\nhandoff\nhandoff\n')
+        fx.start()
+        fx.conveyor("stop")
+        fx.task("demo")
+        fx.drive()
+        self.assertEqual(fx.board()["demo"]["lane"], "done")
+        self.assertEqual(os.listdir(fx.paths.needs_human), [])
+
+
 class M4NoAgent(ConveyorTest):
     def test_missing_agent_binary_parks(self):
         fx = self.fx

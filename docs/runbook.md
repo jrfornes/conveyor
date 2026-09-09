@@ -158,16 +158,25 @@ reviewer        1  63.0k     4.1k     67.1k     3m     result
 reviewer        1  -         -        -         4m     none
                    --------  -------  --------  -----
                    242.5k    21.1k    263.6k    18m
+max_tokens 500000 (coder) — 52% used.
 ```
 
 `SOURCE` is where the number came from and is worth a glance the first time you run this against a
 new agent version: `result` is a total the agent reported at the end of the run, `messages` is the
 sum of its per-message reports, and `none` is a run that said nothing — its row is all `-` and it is
 counted in the trailing "reported no usage" line rather than added in as zero. A run that never
-finished has no row at all.
+finished has no row at all. The last line appears only when the task's current lane sets a budget.
 
 Conveyor records tokens, not money. A `cost_usd` is kept only when the agent itself reports one:
 prices go stale, and a made-up dollar figure on your screen is worse than no figure.
+
+**Budgets.** `max_tokens=N` on a `role` line in `conveyor.conf` parks the task with reason
+`max-tokens` once the task's total passes `N`. It is task-wide, not per role — a coder ↔ reviewer
+ping-pong is one budget — and it is checked between attempts as well as before each item, so a task
+cannot burn the whole budget inside one handoff. A running agent is never killed for cost. Absent (or
+`0`) means unbounded, and a task whose runs all reported nothing never parks: Conveyor will not park
+on a number it invented. `conveyor resume` does not reset the total; raise `max_tokens` if you want
+a bigger budget.
 
 ## 7. Recovery
 

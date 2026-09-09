@@ -90,5 +90,32 @@ class CostCLI(ConveyorTest):
         self.assertIn("[conveyor] exit 0", out)
 
 
+class CostBudgetLine(ConveyorTest):
+    coder_conf = "max_tokens=500000"
+
+    def test_budget_line_shows_percent_used(self):
+        fx = self.fx
+        fx.script("coder", CODER_USAGE)
+        fx.start()
+        fx.conveyor("stop")
+        fx.task("add-login")
+        fx.loop("coder")           # leaves the task in the reviewer's lane
+        fx.conveyor("stop")
+        out = fx.conveyor("cost", "add-login").stdout
+        self.assertNotIn("max_tokens", out)  # the reviewer lane sets no ceiling
+
+    def test_budget_line_refuses_a_percentage_it_cannot_measure(self):
+        fx = self.fx
+        fx.script("coder", 'commit "Partial"\nexit 0\n')
+        fx.start()
+        fx.conveyor("stop")
+        fx.task("demo")
+        fx.loop("coder")           # parks on max-attempts with no usage reported
+        fx.conveyor("resume", "demo")
+        out = fx.conveyor("cost", "demo").stdout
+        self.assertIn("max_tokens 500000 (coder) — no run reported usage, "
+                      "so nothing is counted against it.", out)
+
+
 if __name__ == "__main__":
     unittest.main()

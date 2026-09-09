@@ -530,6 +530,9 @@ loop:
     if attempt > max_attempts:
         park(reason: max-attempts)
         break
+    if max_tokens and task token total > max_tokens:
+        park(reason: max-tokens)          -- §6.6; the budget is also checked here
+        break
     (loop; next prompt includes the last validator error, if any, and --resume <session>)
 ```
 
@@ -563,13 +566,20 @@ Every step is safe to repeat. The "id present anywhere" check is what makes a cr
 
 ### 6.6 Ceilings
 
-Checked at the start of §6.3, never mid-run:
+Checked at the start of §6.3 — and `max_tokens` also between attempts — never mid-run:
 
 | Ceiling | Source | Test | Park reason |
 |---|---|---|---|
 | `max_retries` | config per role (applies to `coder`) | `retry_count > max_retries` | `max-retries` |
 | `max_minutes` | config per role | `now − first dequeued_at for this task_id > max_minutes` | `max-minutes` |
 | `max_attempts` | config per role | §6.3 | `max-attempts` |
+| `max_tokens` | config per role; absent = `0` = unbounded | `sum of every usage sidecar for this task > max_tokens` | `max-tokens` |
+
+`max_tokens` is task-wide and read from the current role's config, exactly as `max_minutes` is: the total is the sum over every `.usage.json` (§6.9) carrying this task, across all roles and attempts, so one coder ↔ reviewer ping-pong is bounded as a single budget.
+
+It is the one ceiling also checked **between attempts** of a single item, where §6.3 checks `attempt > max_attempts`. A task can spend its whole budget inside attempts 1 and 2 of one item, and a ceiling that fired only on the next dequeue would bound nothing. "Never mid-run" still holds: a running agent is never killed for cost.
+
+A total no agent reported cannot fire the ceiling. When every sidecar for a task is `source: none` the spend is **unknown**, not zero, and the loop refuses rather than parks a task on a number it invented (§5.5 of the PRD). Ceilings are on tokens only; Conveyor ships no price table and never parks on a dollar figure.
 
 "First `dequeued_at` for this task_id" is found by scanning `roles/*/inbox/{in_process,completed}/` and `sent/` for the earliest `dequeued_at` with matching `task_id`. Cache it in the board row as `started_at` (§8.1) on first observation to avoid rescanning.
 
@@ -637,7 +647,9 @@ write needs-human/<task>/reason:   <reason>\n<one line of detail>\n<timestamp>
 board: lane=needs-human, updated_at
 ```
 
-`conveyor resume <task> [--to <role>]` (default `--to` = the item's `to`, or `coder` for a coder item) renames `item.handoff` into `roles/<role>/inbox/new/` under its original filename, resets `attempt` to 1 in the header, and sets the board lane. `retry_count`, `audit_count`, and `task_id` are never reset. The operator is expected to have fixed something first (edited the task file and committed on main, or fixed the conflict); Conveyor does not check.
+Park reasons: `max-retries`, `max-minutes`, `max-attempts`, `max-tokens`, `merge-conflict`, `untracked-collision`, `multiple-handoffs`, `no-rules`, `no-agent`, `no-task-file`, `done-command`.
+
+`conveyor resume <task> [--to <role>]` (default `--to` = the item's `to`, or `coder` for a coder item) renames `item.handoff` into `roles/<role>/inbox/new/` under its original filename, resets `attempt` to 1 in the header, and sets the board lane. `retry_count`, `audit_count`, `task_id`, and the accumulated token total are never reset — an operator who wants a bigger budget raises `max_tokens`. The operator is expected to have fixed something first (edited the task file and committed on main, or fixed the conflict); Conveyor does not check.
 
 ### 6.11 The loop log
 

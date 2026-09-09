@@ -1,6 +1,10 @@
 # Token cost — what a task actually spent
 
-**Status:** planned. Not started.
+**Status:** built. Steps 1–8 landed; step 0 (the live `cursor-agent` run) is still
+outstanding and is now a **verification** step, not a prerequisite — see
+[Verification](#verification). The parser was written to be honest about absence
+exactly so the rest could land without it: until a real run confirms the shape,
+`usage.ALIASES` is the table to extend, and nothing invents a number.
 
 **Job:** every agent run records what it consumed, the operator can read it
 per task and per role, and a task that burns its budget **parks** instead of
@@ -356,19 +360,47 @@ today — and record in `bin/README.md` that the agent reports no usage. Do
 ## Order of work
 
 0. One live run; look at the log (above). This orders everything after it.
-1. `lib/conveyor/usage.py` + tests 1–7. Pure, no wiring, no risk.
-2. Fake-agent `usage` verbs.
-3. `run_agent` writes the sidecar and the log record; test 9.
-4. `conveyor cost`; tests 8–10.
-5. `conveyor status` column + runbook §6 + test 11, 16.
-6. `max_tokens` in config + the two checks + tests 12–15.
+   **Not done** — no M3 run has happened. Steps 1–8 landed without it, on the
+   `source: none` posture the plan was hedged on.
+1. `lib/conveyor/usage.py` + tests 1–7. Pure, no wiring, no risk. **done**
+2. Fake-agent `usage` verbs. **done** — `usage <in> <out>` and `usage-msg <in> <out>`.
+3. `run_agent` writes the sidecar and the log record; test 9. **done**
+4. `conveyor cost`; tests 8–10. **done**
+5. `conveyor status` column + runbook §6 + test 11, 16. **done**
+6. `max_tokens` in config + the two checks + tests 12–15. **done**
 7. Protocol §6.6 / §6.9 / §6.10, PRD B.7, `bin/README.md`, `CLAUDE.md`,
-   `conveyor.conf.example`.
-8. `GET /api/cost`.
+   `conveyor.conf.example`. **done** — `bin/README.md` Ambiguities 49–52.
+8. `GET /api/cost`. **done** — API only; no board badge, per Cockpit above.
 
 Steps 1–4 are additive and land safely on their own: nothing parks, nothing
 changes format, and the operator gets the number. Step 5 touches a normative
 format and step 6 can park a live task — do not merge them into one commit.
+
+---
+
+## Built differently from the plan
+
+Three places where the code does not match the text above. Each is a correction,
+not a shortcut.
+
+1. **The log record's token keys are `input_tokens` / `output_tokens`, not
+   `input` / `output`.** The plan's record collides with `cmd_log`: `output` is
+   already in `LOG_DETAIL_KEYS`, so a bare `output` key prints the raw number a
+   second time after the formatted `text`. The sidecar keeps the short names.
+2. **`run_agent` does not return the scan.** The plan has it returned alongside
+   `(session, last_err)`, but nothing reads it: locked decision 7 makes the
+   ceiling task-wide across every role and attempt, so `over_tokens` sums the
+   sidecars on disk — including the one just written — rather than the run in
+   hand. Returning it would be dead code.
+3. **`usage.total` over runs that all reported nothing is `None`, not `0`.** The
+   plan specifies `-` in the cells and an `unknown` count, but a summed `0` would
+   have reached `conveyor cost` as a real number. Decision 4 only holds if the
+   absence propagates through the sum. A test asserts it.
+
+Two things the plan left implicit that the code fixes in one place: `usage.human`
+(`450.4k` / `1.2M` / `-`) and `usage.clock` (`47m` / `2h11m`) live in `usage.py`,
+not in `bin/conveyor`, because `role-loop.sh` needs the first one too and the same
+number must never appear in two shapes.
 
 ---
 

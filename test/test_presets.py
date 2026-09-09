@@ -189,6 +189,30 @@ class Resolve(Base):
                    "gate none")
         self.assertEqual(presets.resolve(self.paths, self.cfg()), (None, "custom"))
 
+    def test_max_tokens_absent_round_trips_byte_identically(self):
+        """`config.save` writes max_tokens only when set, so a belt that never
+        budgets keeps the file it had and stays a recognised preset, not `custom`."""
+        cfg = self.cfg()
+        config.save(self.fx.root, cfg)
+        first = read(os.path.join(self.fx.root, "conveyor.conf"))
+        self.assertNotIn("max_tokens", first)
+        config.save(self.fx.root, config.load(self.fx.root))
+        self.assertEqual(read(os.path.join(self.fx.root, "conveyor.conf")), first)
+        self.assertEqual(presets.resolve(self.paths, config.load(self.fx.root)),
+                         ("review-belt", "active"))
+
+    def test_max_tokens_survives_a_save_and_reload(self):
+        cfg = self.cfg()
+        cfg.role("coder").max_tokens = 500000
+        config.save(self.fx.root, cfg)
+        text = read(os.path.join(self.fx.root, "conveyor.conf"))
+        self.assertIn("max_attempts=3 max_tokens=500000", text)
+        back = config.load(self.fx.root)
+        self.assertEqual(back.role("coder").max_tokens, 500000)
+        self.assertEqual(back.role("reviewer").max_tokens, 0)
+        # A ceiling is not a pipeline shape: the preset still matches (roles, gate).
+        self.assertEqual(presets.resolve(self.paths, back), ("review-belt", "active"))
+
     def test_resolve_self_heals_a_stale_marker(self):
         """Crash between activate()'s two writes: the shape wins over the marker."""
         with open(self.paths.active, "w") as f:

@@ -189,6 +189,9 @@ class Loop:
             over = age >= self.me.max_minutes * 60 if intake else age > self.me.max_minutes * 60
             if over:
                 return park("max-minutes", f"task started {started}, exceeds max_minutes {self.me.max_minutes}")
+        spent = self.over_tokens(task)
+        if spent is not None:
+            return park("max-tokens", f"{usage.human(spent)} tokens over max_tokens {self.me.max_tokens}")
         attempt, session, last_err, ran = int(h.get("attempt", 1)), h.get("session"), None, False
         while True:
             n = self.valid_outbox_count()
@@ -212,6 +215,12 @@ class Loop:
                 handoff.stamp(path, attempt=attempt, **({"session": session} if session else {}))
                 if attempt > self.me.max_attempts:
                     return park("max-attempts", f"{attempt - 1} agent runs ended without a valid handoff")
+                # Amends §6.6: the budget is also checked between attempts. A task can
+                # spend all of it inside one item, and a ceiling that only fires on the
+                # next dequeue bounds nothing. No running agent is ever killed for cost.
+                spent = self.over_tokens(task)
+                if spent is not None:
+                    return park("max-tokens", f"{usage.human(spent)} tokens over max_tokens {self.me.max_tokens}")
                 if self.stop_requested():
                     sys.exit(0)
             if not os.path.exists(os.path.join(self.wt, ".cursor", "rules", "conveyor-role.mdc")):
@@ -228,6 +237,18 @@ class Loop:
             session, last_err = self.run_agent(task, h["id"], attempt, prompt, session)
             util.crash_point("after-agent")
             ran = True
+
+    def over_tokens(self, task):
+        """Tokens billed to this task so far when they exceed this role's ceiling.
+
+        `max_tokens=0` is unbounded, and a total no agent reported (every sidecar
+        `source: none`) is unknown, not zero: Conveyor refuses rather than parks a
+        task on a number it invented (PRD §5.5). Task-wide across every role and
+        attempt, read from the current role's config -- the `max_minutes` rule."""
+        if not self.me.max_tokens:
+            return None
+        spent = usage.task_total(self.paths, task)
+        return spent if spent is not None and spent > self.me.max_tokens else None
 
     def valid_outbox_count(self):
         n = 0
