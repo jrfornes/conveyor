@@ -123,6 +123,7 @@ High `audit` with low `retry` means the coder is being challenged and fixing thi
            Before resubmitting, re-read tasks/add-login.md and your role file.
 14:18:07 [tool] handoff.sh OK: coder-000001 queued for reviewer
           0
+14:18:07 [conveyor] usage in 88.1k, out 9.2k, 3m05s (result)
 14:18:07 [conveyor] exit 0
 ```
 
@@ -130,6 +131,10 @@ The header names the log file and when the run started; each line is dated with 
 same timezone as `board.tsv` and every handoff header — so gaps show you where an agent spent its
 time. A wrapped line continues in the clock's own column. Lines from before Conveyor dated its logs
 show a blank clock instead.
+
+The `usage` line is what that one run cost, and `(result)` is where the number came from —
+`conveyor cost` explains the three sources. A run whose agent reported nothing reads
+`in -, out -` rather than zeros.
 
 `loop.log` in the same directory is the loop's own timeline (item picked up, attempt started, agent
 exit code, `forwarded`/`merged`, parks), one dated line each.
