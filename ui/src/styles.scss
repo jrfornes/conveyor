@@ -55,3 +55,12 @@ html {
 .workflow-edit-dialog .mdc-label {
   white-space: normal;
 }
+
+// Action failures ride the same snackbar as the success toasts, so they need to
+// read as failures at a glance — they stay up far longer than a success toast,
+// and the operator can dismiss them outright.
+.error-snack {
+  --mdc-snackbar-container-color: #b71c1c;
+  --mdc-snackbar-supporting-text-color: #fff;
+  --mat-snack-bar-button-color: #ffcdd2;
+}

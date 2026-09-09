@@ -51,6 +51,14 @@ Builds the Angular app on first run if it isn't built yet, then serves API + sta
 
 The **Workflow** and **Roles** pages edit contract files. Named starters are **Review belt** (`coder → reviewer`) and **Spec then build** (`specifier → coder → reviewer`). Saved prompts and `project.md` apply on next Start — they do not hot-patch a running loop’s `.mdc`. Workflow switch and model/ceiling edits return 409 while loops are running.
 
+## Errors
+
+No failure disappears on a timer. Three surfaces carry them:
+
+- A failed **action** raises a red strip under the toolbar. It stays until you dismiss it with the ✕ or start the next action — the 2s state poll cannot clear it. It is also mirrored into a snackbar near where you clicked, which does fade after 12s so it stops covering the page; the strip behind it does not. A repeat of the same failure counts up (`×3`) instead of re-announcing itself.
+- A failed **poll** raises a separate amber strip and clears itself the moment the poll recovers — the same news the live dot and `last known:` already carry. It can never clear an action error; that split is the whole point.
+- The **history** behind the toolbar's history badge keeps the last 20 failures with timestamps, including the ones pages show inline next to their own fields, so a message you missed is still recoverable. **Clear** empties it.
+
 State is read from `.conveyor/` via `lib/conveyor`. Mutations shell out to `bin/conveyor` so protocol rules stay in one place (file writes for role prompts and `project.md` are atomic).
 
 ## Deferred (PRD Appendix B)

@@ -6,6 +6,7 @@ import { MAT_DIALOG_DATA, MatDialog, MatDialogModule, MatDialogRef } from '@angu
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { SkillInfo } from '../models';
 import { ConveyorApiService } from '../services/conveyor-api.service';
+import { FailureLike, UiStateService, errorMessage } from '../services/ui-state.service';
 import { ConfirmDialogComponent } from './confirm-dialog.component';
 
 export interface RoleDetailDialogData {
@@ -120,6 +121,7 @@ export class RoleDetailDialogComponent implements OnInit {
   private dialog = inject(MatDialog);
   private api = inject(ConveyorApiService);
   private snack = inject(MatSnackBar);
+  private ui = inject(UiStateService);
 
   /** Parent listens so the Roles banner can flip to Saved without closing. */
   @Output() saved = new EventEmitter<void>();
@@ -183,7 +185,7 @@ export class RoleDetailDialogComponent implements OnInit {
       },
       error: (e) => {
         this.busy = false;
-        this.error = e?.error?.error ?? e.message ?? 'Prompt save failed';
+        this.error = this.inline(e, 'Prompt save failed');
       },
     });
   }
@@ -205,7 +207,7 @@ export class RoleDetailDialogComponent implements OnInit {
       },
       error: (e) => {
         this.busy = false;
-        this.error = e?.error?.error ?? e.message ?? 'Skills save failed';
+        this.error = this.inline(e, 'Skills save failed');
       },
     });
   }
@@ -231,5 +233,11 @@ export class RoleDetailDialogComponent implements OnInit {
         this.closing = false;
         if (ok) this.ref.close({ saved: this.didSave });
       });
+  }
+
+  /** Show the failure inline and record it in the shared error history. */
+  private inline(e: FailureLike, fallback: string): string {
+    this.ui.note(e, fallback);
+    return errorMessage(e, fallback);
   }
 }

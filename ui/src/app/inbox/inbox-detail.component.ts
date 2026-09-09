@@ -330,7 +330,7 @@ export class InboxDetailComponent implements OnInit {
 
   refreshImport(): void {
     const iid = this.id();
-    this.ui.busy.set(true);
+    this.ui.startAction();
     this.api.refreshImport(iid).subscribe({
       next: (r) => {
         this.ui.busy.set(false);
@@ -353,7 +353,7 @@ export class InboxDetailComponent implements OnInit {
       .afterClosed()
       .subscribe((text) => {
         if (text == null) return;
-        this.ui.busy.set(true);
+        this.ui.startAction();
         this.api.replaceInboxSource(it.id, text).subscribe({
           next: (r) => this.ok(r.message ?? 'Replaced'),
           error: (e) => this.fail(e, 'Edit source failed'),
@@ -377,7 +377,7 @@ export class InboxDetailComponent implements OnInit {
       .afterClosed()
       .subscribe((select) => {
         if (select == null) return;
-        this.ui.busy.set(true);
+        this.ui.startAction();
         this.api.inboxAttachments(it.id, select).subscribe({
           next: (r) => this.ok(r.message || 'Attachments updated'),
           error: (e) => this.fail(e, 'Attachments failed'),
@@ -387,7 +387,7 @@ export class InboxDetailComponent implements OnInit {
 
   runIntake(improve: boolean): void {
     const iid = this.id();
-    this.ui.busy.set(true);
+    this.ui.startAction();
     const comments = improve ? this.improveComments : undefined;
     this.api.intake(iid, improve, comments).subscribe({
       next: (r) => {
@@ -422,14 +422,14 @@ export class InboxDetailComponent implements OnInit {
               return;
             }
             if (v.action === 'reject') {
-              this.ui.busy.set(true);
+              this.ui.startAction();
               this.api.intake(it.id, true, v.comments).subscribe({
                 next: (r) => this.ok(r.message ?? 'OK'),
                 error: (e) => this.fail(e, 'Improve failed'),
               });
               return;
             }
-            this.ui.busy.set(true);
+            this.ui.startAction();
             this.api.inboxApprove(
               it.id,
               v.name,
@@ -445,7 +445,7 @@ export class InboxDetailComponent implements OnInit {
   }
 
   skip(): void {
-    this.ui.busy.set(true);
+    this.ui.startAction();
     this.api.inboxSkip(this.id()).subscribe({
       next: (r) => this.ok(r.message ?? 'Skipped'),
       error: (e) => this.fail(e, 'Skip failed'),
@@ -456,7 +456,7 @@ export class InboxDetailComponent implements OnInit {
     const it = this.item;
     if (!it) return;
     const name = this.taskName(it) || it.id;
-    this.ui.busy.set(true);
+    this.ui.startAction();
     this.api.startTask(name).subscribe({
       next: (r) => {
         this.snack.open(r.message ?? 'Queued', undefined, { duration: 3000 });

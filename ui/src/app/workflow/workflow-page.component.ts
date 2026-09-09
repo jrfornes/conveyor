@@ -4,7 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ConveyorApiService } from '../services/conveyor-api.service';
-import { UiStateService } from '../services/ui-state.service';
+import { FailureLike, UiStateService, errorMessage } from '../services/ui-state.service';
 import { RoleAvatar, WorkflowEdit, WorkflowListResponse, WorkflowState } from '../models';
 import { WorkflowTableComponent } from './workflow-table.component';
 import {
@@ -116,7 +116,7 @@ export class WorkflowPageComponent implements OnInit {
         this.list = l;
         this.error = '';
       },
-      error: (e) => (this.error = e?.error?.error ?? e.message ?? 'Failed to load workflows'),
+      error: (e) => (this.error = this.inline(e, 'Failed to load workflows')),
     });
   }
 
@@ -177,8 +177,14 @@ export class WorkflowPageComponent implements OnInit {
       },
       error: (e) => {
         this.busy = false;
-        this.error = e?.error?.error ?? e.message ?? 'Create failed';
+        this.error = this.inline(e, 'Create failed');
       },
     });
+  }
+
+  /** Show the failure inline and record it in the shared error history. */
+  private inline(e: FailureLike, fallback: string): string {
+    this.ui.note(e, fallback);
+    return errorMessage(e, fallback);
   }
 }

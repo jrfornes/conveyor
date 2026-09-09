@@ -9,6 +9,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatTabsModule } from '@angular/material/tabs';
 import { AgentModel, IntakeState, RoleAvatar } from '../models';
 import { ConveyorApiService } from '../services/conveyor-api.service';
+import { FailureLike, UiStateService, errorMessage } from '../services/ui-state.service';
 
 @Component({
   selector: 'app-intake-settings-rail',
@@ -226,7 +227,11 @@ export class IntakeSettingsRailComponent implements OnInit {
   jiraTest = '';
   jiraTestOk = false;
 
-  constructor(private api: ConveyorApiService, private snack: MatSnackBar) {}
+  constructor(
+    private api: ConveyorApiService,
+    private snack: MatSnackBar,
+    private ui: UiStateService,
+  ) {}
 
   modelOptions(current: string | undefined): AgentModel[] {
     const id = (current ?? '').trim();
@@ -238,7 +243,7 @@ export class IntakeSettingsRailComponent implements OnInit {
     this.api.intakeSettings().subscribe({
       next: (s) => this.apply(s),
       error: (e) => {
-        this.configError = e?.error?.error ?? e.message ?? 'Failed to load intake';
+        this.configError = this.inline(e, 'Failed to load intake');
       },
     });
     this.api.models().subscribe({
@@ -291,7 +296,7 @@ export class IntakeSettingsRailComponent implements OnInit {
       },
       error: (e) => {
         this.configBusy = false;
-        this.configError = e?.error?.error ?? e.message ?? 'Save failed';
+        this.configError = this.inline(e, 'Save failed');
       },
     });
   }
@@ -307,7 +312,7 @@ export class IntakeSettingsRailComponent implements OnInit {
       },
       error: (e) => {
         this.promptBusy = false;
-        this.promptError = e?.error?.error ?? e.message ?? 'Save failed';
+        this.promptError = this.inline(e, 'Save failed');
       },
     });
   }
@@ -323,7 +328,7 @@ export class IntakeSettingsRailComponent implements OnInit {
       },
       error: (e) => {
         this.rubricBusy = false;
-        this.rubricError = e?.error?.error ?? e.message ?? 'Save failed';
+        this.rubricError = this.inline(e, 'Save failed');
       },
     });
   }
@@ -341,7 +346,7 @@ export class IntakeSettingsRailComponent implements OnInit {
       },
       error: (e) => {
         this.jiraBusy = false;
-        this.jiraError = e?.error?.error ?? e.message ?? 'Save failed';
+        this.jiraError = this.inline(e, 'Save failed');
       },
     });
   }
@@ -361,7 +366,7 @@ export class IntakeSettingsRailComponent implements OnInit {
       error: (e) => {
         this.jiraBusy = false;
         this.jiraTestOk = false;
-        this.jiraTest = e?.error?.error ?? e.message ?? 'Test failed';
+        this.jiraTest = this.inline(e, 'Test failed');
       },
     });
   }
@@ -381,8 +386,14 @@ export class IntakeSettingsRailComponent implements OnInit {
       },
       error: (e) => {
         this.jiraBusy = false;
-        this.jiraError = e?.error?.error ?? e.message ?? 'Clear failed';
+        this.jiraError = this.inline(e, 'Clear failed');
       },
     });
+  }
+
+  /** Show the failure inline and record it in the shared error history. */
+  private inline(e: FailureLike, fallback: string): string {
+    this.ui.note(e, fallback);
+    return errorMessage(e, fallback);
   }
 }
