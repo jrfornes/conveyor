@@ -101,6 +101,24 @@ class UiApiTest(unittest.TestCase):
         self.assertEqual(wf["chain"], "coder → reviewer")
         self.assertEqual(state["intake"], {"busy": False, "task": None})
 
+    def test_cost_endpoint_reports_the_same_numbers_as_the_cli(self):
+        cost = get(f"{self.base}/api/cost")
+        # No run has happened in this fixture: every task is present, none billed.
+        self.assertTrue(any(t["task"] == "demo" for t in cost["tasks"]))
+        demo = next(t for t in cost["tasks"] if t["task"] == "demo")
+        self.assertEqual(demo["runs"], [])
+        self.assertIsNone(demo["total"]["total"], "unknown is null, never 0")
+        from conveyor import usage
+        usage.record(self.fx.paths, "coder", "demo", "operator-000001", 1,
+                     usage.scan('{"type":"result","usage":'
+                                '{"input_tokens":88100,"output_tokens":9200}}'), 372.0, 0)
+        cost = get(f"{self.base}/api/cost")
+        demo = next(t for t in cost["tasks"] if t["task"] == "demo")
+        self.assertEqual(len(demo["runs"]), 1)
+        self.assertEqual(demo["runs"][0]["source"], "result")
+        self.assertEqual(demo["total"]["total"], 97300)
+        self.assertEqual(cost["total"]["total"], 97300)
+
     def test_intake_busy_reflected_in_state(self):
         # /api/state is what the UI polls to disable Grade/Improve while
         # ticket-reviewer's single, shared loop lock is held by another item.

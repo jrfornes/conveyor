@@ -3,7 +3,7 @@
 
 conveyor init [<path>] | uninstall [--yes] [--bundle]
            | start | stop [--now] | task <name> [--delete]
-           | status | log <role> [<task>] | resume <task> [--to <role>]
+           | status | log <role> [<task>] | cost [<task>] | resume <task> [--to <role>]
            | import --source manual|jira [--title ...]
            | import --refresh <id> | import --replace <id>
            | intake <id> [--improve] [--comments <file>] | intake config | intake jira
@@ -35,7 +35,7 @@ BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
 from conveyor import (adapters, agent as agentlib, attachments, board, config, gates, handoff, inbox,  # noqa: E402
                       intake as intakelib, jira as jiralib, layout, presets, queue,
-                      roles as roleslib, util)
+                      roles as roleslib, usage, util)
 
 RULE_FILES = ["constitution.md", "constitution/engineering.md", "constitution/workflow.md",
               "constitution/handoffs.md", "project.md"]
@@ -716,8 +716,12 @@ def cmd_status(args):
         lines = util.read_text(os.path.join(os.path.dirname(p), "reason")).split("\n")
         print(f"  {task:<12}{lines[0]:<14}{lines[1] if len(lines) > 1 else ''}")
     print("board:")
+    spend = usage.read_all(paths)  # one walk of the log tree, not one per row
     for r in board.read(paths):
-        print(f"  {r['name']:<12}{r['lane']:<13}audit {r['audit_count']}  retry {r['retry_count']}")
+        # `-`, never `0`: no run has reported usage for this task (runbook §6).
+        tok = usage.human(usage.total(spend.get(r["name"], []))["total"])
+        print(f"  {r['name']:<12}{r['lane']:<13}audit {r['audit_count']}  "
+              f"retry {r['retry_count']}  tok {tok}")
     _print_inbox_block(paths)
 
 
@@ -779,6 +783,74 @@ def cmd_log(args):
         clock = f"{at[11:19]:<9}" if len(at) == 20 else " " * 9
         text = detail if kind is None else f"[{kind}] {detail}"
         print(clock + text.replace("\n", "\n" + " " * 9))  # wrapped output stays in its column
+
+
+# `conveyor cost` column layout (runbook §6.2). One place, so the header, the
+# rows, the rule and the total line can never drift apart.
+TASK_ROW = "{task:<14}{runs:>4}  {inp:<10}{out:<9}{tot:<10}{wall}"
+RUN_ROW = "{role:<10}{attempt:>7}  {inp:<10}{out:<9}{tot:<10}{wall:<7}{source}"
+NUM_RULE = "--------  -------  --------  -----"
+
+
+def _sum_row(t):
+    return {"runs": t["runs"], "inp": usage.human(t["input"]), "out": usage.human(t["output"]),
+            "tot": usage.human(t["total"]), "wall": usage.clock(t["wall_s"])}
+
+
+def _unknown_note(n):
+    return f"  {n} run{'s' if n != 1 else ''} reported no usage." if n else ""
+
+
+def cmd_cost(args):
+    """Protocol-free read: no lock, no writes, works on a stopped pipeline."""
+    _, cfg, paths = setup()
+    by_task = usage.read_all(paths)
+    rows = board.read(paths)
+    if args:
+        return _cost_task(cfg, rows, by_task, args[0])
+    if not by_task:
+        print("no agent runs recorded yet.")
+        return
+    print(TASK_ROW.format(task="TASK", runs="RUNS", inp="IN", out="OUT",
+                          tot="TOTAL", wall="WALL"))
+    # Newest task first; a task with a sidecar but no board row (deleted) still bills.
+    order = sorted(rows, key=lambda r: r["created_at"], reverse=True)
+    names = [r["name"] for r in order] + sorted(t for t in by_task if not any(
+        r["name"] == t for r in rows))
+    grand = []
+    for name in names:
+        runs = by_task.get(name, [])
+        grand += runs
+        print(TASK_ROW.format(task=name, **_sum_row(usage.total(runs))))
+    t = usage.total(grand)
+    print(" " * 14 + "----  " + NUM_RULE)
+    print(TASK_ROW.format(task="", **_sum_row(t)))
+    print(f"{len(names)} task{'s' if len(names) != 1 else ''}, "
+          f"{t['runs']} run{'s' if t['runs'] != 1 else ''}."
+          + _unknown_note(t["unknown"]))
+
+
+def _cost_task(cfg, rows, by_task, task):
+    runs = by_task.get(task, [])
+    row = next((r for r in rows if r["name"] == task), None)
+    if not runs and row is None:
+        util.die(f"conveyor cost: unknown task {task}")
+    print(f"{task:<12}{runs[-1]['id'] if runs else '-'}")
+    print(RUN_ROW.format(role="ROLE", attempt="ATTEMPT", inp="IN", out="OUT",
+                         tot="TOTAL", wall="WALL", source="SOURCE"))
+    for r in runs:
+        print(RUN_ROW.format(
+            role=r.get("role", "?"), attempt=r.get("attempt", 1),
+            inp=usage.human(r.get("input")), out=usage.human(r.get("output")),
+            tot=usage.human(None if r.get("source") in (None, "none")
+                            else (r.get("input") or 0) + (r.get("output") or 0)),
+            wall=usage.clock(r.get("duration_s") or 0), source=r.get("source", "none")))
+    t = usage.total(runs)
+    print(" " * 19 + NUM_RULE)
+    print(RUN_ROW.format(role="", attempt="", **_sum_row(t), source="").rstrip())
+    if t["unknown"]:
+        print(_unknown_note(t["unknown"]).strip())
+
 
 
 def cmd_resume(args):
@@ -1622,7 +1694,7 @@ def cmd_gate(args):
 
 
 COMMANDS = {"init": cmd_init, "uninstall": cmd_uninstall, "start": cmd_start, "stop": cmd_stop,
-            "task": cmd_task, "status": cmd_status, "log": cmd_log, "resume": cmd_resume,
+            "task": cmd_task, "status": cmd_status, "log": cmd_log, "cost": cmd_cost, "resume": cmd_resume,
             "import": cmd_import, "intake": cmd_intake, "inbox": cmd_inbox,
             "start-task": cmd_start_task, "approve": cmd_approve, "reject": cmd_reject,
             "role": cmd_role,

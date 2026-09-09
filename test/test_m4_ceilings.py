@@ -28,7 +28,8 @@ class M4Retries(ConveyorTest):
         self.assertRegex(out, r"(?m)^coder      idle\s+new: 0")
         self.assertRegex(out, r"(?m)^reviewer   idle\s+new: 0")
         self.assertIn("needs-human:\n  fix-cache   max-retries   reviewer sent findings 4 times\n", out)
-        self.assertIn("board:\n  fix-cache   needs-human  audit 8  retry 4\n", out)
+        # `tok -`: the fake agent reports no usage, and unknown is never printed as 0.
+        self.assertIn("board:\n  fix-cache   needs-human  audit 8  retry 4  tok -\n", out)
 
     def test_resume_moves_item_back_and_keeps_counters(self):
         fx = self.fx
