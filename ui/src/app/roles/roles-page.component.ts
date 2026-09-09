@@ -4,7 +4,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogRef } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ConveyorApiService } from '../services/conveyor-api.service';
-import { UiStateService } from '../services/ui-state.service';
+import { FailureLike, UiStateService, errorMessage } from '../services/ui-state.service';
 import { AgentModel, RoleRecord, WorkflowState } from '../models';
 import { RoleCardsComponent } from './role-cards.component';
 import { EditorPaneComponent } from './editor-pane.component';
@@ -147,7 +147,7 @@ export class RolesPageComponent implements OnInit {
       },
       error: (e) => {
         this.models = [];
-        this.modelsError = e?.error?.error ?? e.message ?? 'Failed to list models';
+        this.modelsError = this.inline(e, 'Failed to list models');
       },
     });
   }
@@ -168,7 +168,7 @@ export class RolesPageComponent implements OnInit {
         }
       },
       error: (e) => {
-        this.error = e?.error?.error ?? e.message ?? 'Failed to load roles';
+        this.error = this.inline(e, 'Failed to load roles');
       },
     });
   }
@@ -229,7 +229,7 @@ export class RolesPageComponent implements OnInit {
           },
           error: (e) => {
             this.busy = false;
-            this.error = e?.error?.error ?? e.message ?? 'Create failed';
+            this.error = this.inline(e, 'Create failed');
           },
         });
       });
@@ -261,8 +261,9 @@ export class RolesPageComponent implements OnInit {
           },
           error: (e) => {
             this.busy = false;
-            this.snack.open(e?.error?.error ?? e.message ?? 'Delete failed', undefined,
-                            { duration: 5000 });
+            // Delete has no inline error slot of its own, so it goes on the
+            // shared sticky channel rather than a toast that times out.
+            this.ui.fail(e, 'Delete failed');
           },
         });
       });
@@ -287,7 +288,7 @@ export class RolesPageComponent implements OnInit {
         },
         error: (e) => {
           this.busy = false;
-          this.error = e?.error?.error ?? e.message ?? 'Runtime save failed';
+          this.error = this.inline(e, 'Runtime save failed');
         },
       });
   }
@@ -304,7 +305,7 @@ export class RolesPageComponent implements OnInit {
       },
       error: (e) => {
         this.busy = false;
-        this.error = e?.error?.error ?? e.message ?? 'project.md save failed';
+        this.error = this.inline(e, 'project.md save failed');
       },
     });
   }
@@ -318,8 +319,14 @@ export class RolesPageComponent implements OnInit {
       },
       error: (e) => {
         this.busy = false;
-        this.error = e?.error?.error ?? e.message ?? 'Gate run failed';
+        this.error = this.inline(e, 'Gate run failed');
       },
     });
+  }
+
+  /** Show the failure inline and record it in the shared error history. */
+  private inline(e: FailureLike, fallback: string): string {
+    this.ui.note(e, fallback);
+    return errorMessage(e, fallback);
   }
 }

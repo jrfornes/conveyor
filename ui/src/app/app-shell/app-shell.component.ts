@@ -1,7 +1,14 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit, effect } from '@angular/core';
 import { Router, RouterModule } from '@angular/router';
+import { MatButtonModule } from '@angular/material/button';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatIconModule } from '@angular/material/icon';
+import {
+  MatSnackBar,
+  MatSnackBarModule,
+  MatSnackBarRef,
+  TextOnlySnackBar,
+} from '@angular/material/snack-bar';
 import { ConveyorApiService } from '../services/conveyor-api.service';
 import { UiStateService } from '../services/ui-state.service';
 import { HeaderComponent } from '../header/header.component';
@@ -10,12 +17,21 @@ import { ImportDialogComponent } from '../dialogs/import-dialog.component';
 import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
 import { openImportSummary, runPostImportGrading } from '../import-flow';
 
+/**
+ * How long the mirrored error snackbar stays up. Long enough to read a server
+ * message without hurrying, short enough that an ignored one stops covering the
+ * page. The strip above it has no timer at all.
+ */
+const ERROR_SNACK_MS = 12000;
+
 @Component({
   selector: 'app-shell',
   standalone: true,
   imports: [
     RouterModule,
+    MatButtonModule,
     MatDialogModule,
+    MatIconModule,
     MatSnackBarModule,
     HeaderComponent,
   ],
@@ -29,14 +45,35 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
       [initialized]="ui.state()?.initialized ?? false"
       [busy]="ui.busy()"
       [stale]="ui.stale()"
+      [errors]="ui.history()"
       (newTask)="openNewTask()"
       (importTickets)="openImport()"
       (start)="mutate('start')"
       (stop)="onStop()"
+      (clearErrors)="ui.clearHistory()"
     ></app-header>
 
-    @if (ui.error()) {
-      <div class="error-strip" role="alert">{{ ui.error() }}</div>
+    @if (ui.actionError(); as err) {
+      <div class="error-strip" role="alert">
+        <span class="error-text">{{ err.message }}</span>
+        @if (err.count > 1) {
+          <span class="error-count">×{{ err.count }}</span>
+        }
+        <button
+          mat-icon-button
+          class="error-dismiss"
+          aria-label="Dismiss error"
+          (click)="ui.dismissError()"
+        >
+          <mat-icon>close</mat-icon>
+        </button>
+      </div>
+    }
+
+    @if (ui.pollError(); as poll) {
+      <div class="poll-strip" role="status">
+        {{ poll }} — showing the last known state
+      </div>
     }
 
     <div class="shell-body">
@@ -51,11 +88,24 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
       overflow: hidden;
     }
     .error-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       background: #ffebee;
       color: #b71c1c;
-      padding: 4px 12px;
+      padding: 6px 6px 6px 12px;
       font-size: 13px;
       border-bottom: 1px solid #ef9a9a;
+    }
+    .error-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .error-count { font-variant-numeric: tabular-nums; opacity: 0.75; }
+    .error-dismiss { flex: none; color: inherit; }
+    .poll-strip {
+      background: #fff8e1;
+      color: #8d6e00;
+      padding: 4px 12px;
+      font-size: 12px;
+      border-bottom: 1px solid #ffe082;
     }
     .shell-body {
       flex: 1;
@@ -71,13 +121,39 @@ import { openImportSummary, runPostImportGrading } from '../import-flow';
   `,
 })
 export class AppShellComponent implements OnInit, OnDestroy {
+  /** The snackbar mirroring the current action error, while one is on screen. */
+  private errRef?: MatSnackBarRef<TextOnlySnackBar>;
+
   constructor(
     public ui: UiStateService,
     private api: ConveyorApiService,
     private dialog: MatDialog,
     private snack: MatSnackBar,
     private router: Router,
-  ) {}
+  ) {
+    // The strip sits at the top of the shell, but most actions fire from a rail
+    // or a dialog far away from it. Mirror the error into the snackbar the
+    // success toasts already use, so it lands where the operator is looking.
+    //
+    // This copy times out, unlike the strip: it overlays the bottom of the
+    // page, so leaving it up forever would cover the very controls the operator
+    // needs to recover. Nothing is lost when it goes — the strip holds the
+    // error until it is dismissed, and the history holds it after that. Only an
+    // explicit Dismiss clears the error itself.
+    effect(() => {
+      const err = this.ui.actionError();
+      this.errRef?.dismiss();
+      this.errRef = undefined;
+      if (!err) return;
+      const label = err.count > 1 ? `${err.message} (×${err.count})` : err.message;
+      const ref = this.snack.open(label, 'Dismiss', {
+        duration: ERROR_SNACK_MS,
+        panelClass: 'error-snack',
+      });
+      ref.onAction().subscribe(() => this.ui.dismissError());
+      this.errRef = ref;
+    });
+  }
 
   get view(): 'inbox' | 'board' | 'workflow' | 'roles' {
     // First segment, not `includes`: a slug like /workflow/board-refresh must
@@ -92,6 +168,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.ui.stopPolling();
+    this.errRef?.dismiss();
   }
 
   onStop(): void {
@@ -137,7 +214,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
     const ref = this.dialog.open(ImportDialogComponent, { width: '560px' });
     ref.afterClosed().subscribe((v) => {
       if (!v) return;
-      this.ui.busy.set(true);
+      this.ui.startAction();
       this.api.importTickets(v.source, v.title, v.body).subscribe({
         next: (r) => {
           openImportSummary(this.dialog, r.message || 'Imported');
@@ -152,7 +229,7 @@ export class AppShellComponent implements OnInit, OnDestroy {
   }
 
   mutate(action: string, payload?: unknown): void {
-    this.ui.busy.set(true);
+    this.ui.startAction();
     let req;
     switch (action) {
       case 'start':
