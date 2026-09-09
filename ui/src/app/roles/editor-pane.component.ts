@@ -3,12 +3,13 @@ import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatTabsModule } from '@angular/material/tabs';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { SkillInfo } from '../models';
 
 @Component({
   selector: 'app-editor-pane',
   standalone: true,
-  imports: [FormsModule, MatTabsModule, MatButtonModule, MatChipsModule],
+  imports: [FormsModule, MatTabsModule, MatButtonModule, MatChipsModule, MatTooltipModule],
   template: `
     <mat-tab-group [(selectedIndex)]="tab" animationDuration="0">
       <mat-tab [label]="roleName ? 'roles/' + roleName + '.md' : 'Role prompt'">
@@ -37,15 +38,11 @@ import { SkillInfo } from '../models';
                   @for (s of availableSkills; track s.name) {
                     <mat-chip
                       [highlighted]="assignedSkills.includes(s.name)"
+                      [matTooltip]="skillTooltip(s)"
+                      [matTooltipDisabled]="!skillTooltip(s)"
                       (click)="toggleSkill(s.name)"
                     >
                       {{ s.name }}
-                      @if (s.description) {
-                        <span class="desc"> — {{ s.description }}</span>
-                      }
-                      @if (s.source) {
-                        <span class="desc"> ({{ s.source }})</span>
-                      }
                     </mat-chip>
                   }
                 </mat-chip-set>
@@ -129,7 +126,6 @@ import { SkillInfo } from '../models';
       margin: 0; font-size: 12px; text-transform: uppercase;
       letter-spacing: 0.04em; color: rgba(0,0,0,0.55);
     }
-    .desc { font-size: 11px; opacity: 0.7; }
     mat-chip { cursor: pointer; }
     .gates { margin-top: 6px; }
     .gates h4 {
@@ -171,5 +167,12 @@ export class EditorPaneComponent {
       ? this.assignedSkills.filter((s) => s !== name)
       : [...this.assignedSkills, name];
     this.assignedSkillsChange.emit(next);
+  }
+
+  skillTooltip(skill: SkillInfo): string {
+    const parts: string[] = [];
+    if (skill.description) parts.push(skill.description);
+    if (skill.source) parts.push(`(${skill.source})`);
+    return parts.join(' ');
   }
 }
