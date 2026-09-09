@@ -8,6 +8,8 @@
   usage <in> <out>                             emit a final result event carrying usage
   usage-msg <in> <out>                         emit one per-message usage event
   sleep <n> | crash | exit <n>
+  spawn-child <n>                              background `sleep <n>`; pid in tmp/child.pid
+  ignore-term                                  install SIG_IGN for SIGTERM
   once <line>                                  run <line> only the first time (per task)
 A literal \n inside a quoted argument becomes a newline.
 
@@ -18,6 +20,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -93,6 +96,16 @@ def main():
                  message={"usage": {"input_tokens": int(rest[0]), "output_tokens": int(rest[1])}})
         elif cmd == "sleep":
             time.sleep(float(rest[0]))
+        elif cmd == "spawn-child":
+            # Inherits stdout on purpose: the loop's stamper sees EOF only once this
+            # exits too, which is the orphan-holds-the-pipe case. The pid goes in
+            # tmp/child.pid so a test can prove the group kill reached it.
+            child = subprocess.Popen(["sleep", rest[0]])
+            os.makedirs("tmp", exist_ok=True)
+            with open(os.path.join("tmp", "child.pid"), "w") as f:
+                f.write(str(child.pid))
+        elif cmd == "ignore-term":
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
         elif cmd == "crash":
             os.kill(os.getpid(), 9)
         elif cmd == "exit":

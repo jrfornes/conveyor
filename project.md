@@ -33,6 +33,17 @@ reviewer pass: test
 
 Gate names: `^[a-z][a-z0-9:-]*$`. Substitutions: `{inbound}` (in-process handoff commit), `{head}` (worktree HEAD). -->
 
+<!-- Optional per-gate wall-clock budgets, in seconds. Without this section every gate
+gets `[global] gate_timeout` from conveyor.conf (default 900; 0 means unbounded). A gate
+that runs past its budget is killed and reported as E_GATE_TIMEOUT. Works with either
+gate form above; names must be gates that exist.
+
+## Gate timeouts
+
+build: 1800
+lint: 300
+-->
+
 Must be run from the worktree root. Must exit non-zero on any failure.
 
 ## Language and layout

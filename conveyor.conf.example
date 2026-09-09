@@ -39,6 +39,32 @@ role reviewer composer-2.5  max_minutes=60 max_attempts=2
 # A command hook gets CONVEYOR_ROOT/TASK/TASK_ID/COMMIT/BRANCH/BASE in its env; nonzero exit
 # parks the task `done-command`. See bin/hooks/bitbucket-pr for a Bitbucket Cloud example.
 
+# Optional gate budget: how long any one project.md gate may run, in seconds.
+# 0 means unbounded. Override a single gate with a `## Gate timeouts` section in
+# project.md. A gate that runs past its budget is killed (with its children) and
+# the agent gets E_GATE_TIMEOUT, which it can act on within its remaining attempts.
+# [global]
+#   gate_timeout = 900
+
+# Optional worktree setup: how a role's tree gets its dependencies.
+# Each role works in its own git worktree, and worktrees do not share
+# node_modules / venv / vendor. Without this, the first gate in a fresh tree
+# fails on a missing module rather than on the task — and mid-pipeline, a
+# reviewer that merges a new lockfile into a stale tree turns that into a
+# finding against correct work.
+# [global]
+#   worktree_setup         = pnpm install --frozen-lockfile
+#   worktree_setup_paths   = pnpm-lock.yaml package.json
+#   worktree_setup_timeout = 1800      # seconds; 0 = unbounded
+# The command is opaque — Conveyor never detects a package manager. It runs
+# with cwd = the worktree and CONVEYOR_ROOT/ROLE/WORKTREE/REASON/COMMIT in its
+# env, at two moments: a tree that is new or whose watched paths moved at
+# `conveyor start`, and in the role loop after a merge that moved one. One
+# command serves the whole belt; branch on $CONVEYOR_ROLE to skip a role.
+# Nonzero exit stops `conveyor start`, or parks the task `setup-failed`.
+# Whatever it creates must be in the .gitignore committed on the role branches
+# (handoff.sh refuses a dirty tree, E_DIRTY). See bin/hooks/npm-worktree-setup.
+
 # Optional intake ceilings. Jira credentials are not in this file — they
 # live in gitignored .conveyor/local/jira.json (mode 600). Set them with
 #   conveyor intake jira --site https://example.atlassian.net \

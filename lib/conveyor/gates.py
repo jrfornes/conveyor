@@ -39,13 +39,21 @@ class GateFailedError(GateError):
         super().__init__(exit_code)
 
 
-class Catalog:
-    __slots__ = ("commands", "required", "source")
+class GateTimeoutError(GateError):
+    def __init__(self, seconds, log_path):
+        self.seconds = seconds
+        self.log_path = log_path
+        super().__init__(seconds)
 
-    def __init__(self, commands, required, source):
+
+class Catalog:
+    __slots__ = ("commands", "required", "source", "timeouts")
+
+    def __init__(self, commands, required, source, timeouts=None):
         self.commands = commands
         self.required = required
         self.source = source
+        self.timeouts = timeouts or {}
 
 
 def _section_lines(text, heading):
@@ -126,12 +134,44 @@ def _parse_required_section(lines):
     return required
 
 
+def _parse_timeouts_section(lines, commands):
+    """`## Gate timeouts`: `<name>: <seconds>`, one per line. Shaped like ## Required on.
+
+    A separate section rather than a token on the gate line, so `_parse_gates_section`
+    and its fence handling stay untouched. 0 means unbounded, as it does in config.
+    """
+    timeouts = {}
+    for line in lines:
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        m = re.match(r"^([a-z][a-z0-9:-]*):\s*(.+)$", s)
+        if not m:
+            raise GateParseError(f"gate-timeout line is not `<name>: <seconds>`: {s!r}")
+        name, value = m.group(1), m.group(2).strip()
+        if name in timeouts:
+            raise GateParseError(f"duplicate gate timeout for {name!r}")
+        if name not in commands:
+            raise GateParseError(f"gate timeout names unknown gate {name!r}")
+        if not re.fullmatch(r"\d+", value):
+            raise GateParseError(
+                f"gate timeout for {name!r} must be a non-negative integer: {value!r}")
+        timeouts[name] = int(value)
+    return timeouts
+
+
 def _parse_test_command(text):
     lines = _section_lines(text, "## Test command")
     cmd = _fence_command(lines)
     commands = {IMPLICIT_GATE: cmd}
     required = {}
-    return Catalog(commands, required, "test-command")
+    return Catalog(commands, required, "test-command", _timeouts(text, commands))
+
+
+def _timeouts(text, commands):
+    if not _has_heading(text, "## Gate timeouts"):
+        return {}
+    return _parse_timeouts_section(_section_lines(text, "## Gate timeouts"), commands)
 
 
 def _strip_comments(text):
@@ -160,7 +200,7 @@ def parse(text):
     if has_gates:
         commands = _parse_gates_section(_section_lines(text, "## Gates"))
         required = _parse_required_section(_section_lines(text, "## Required on"))
-        return Catalog(commands, required, "gates")
+        return Catalog(commands, required, "gates", _timeouts(text, commands))
     if has_test or text.strip():
         return _parse_test_command(text)
     return Catalog({}, {}, "test-command")
@@ -192,18 +232,61 @@ def log_path(paths, role, task, commit, name):
     return os.path.join(paths.gates, f"{role}-{task}-{commit}-{name}.txt")
 
 
-def run(paths, wt, role, task, commit, name, argv):
-    """Run one gate command; write log and raise GateFailedError on nonzero exit."""
+def timeout_for(catalog, name, default):
+    """The gate's budget in seconds: `## Gate timeouts` beats `[global] gate_timeout`."""
+    return catalog.timeouts.get(name, default)
+
+
+_RUNNING_PGID = None  # process group of the gate in flight, for kill_running()
+
+
+def kill_running():
+    """Stop the gate currently in flight, if any.
+
+    `handoff.sh` calls this from its SIGTERM handler. A gate runs in its own
+    session, so the agent's process-group kill does not reach it: without this a
+    killed run leaves an `nx build` running forever.
+    """
+    util.kill_group(_RUNNING_PGID)
+
+
+def run(paths, wt, role, task, commit, name, argv, timeout=0):
+    """Run one gate command; write log and raise on nonzero exit or timeout.
+
+    `timeout` is seconds, 0 = unbounded. The command gets its own process group:
+    with shell=True a plain `communicate(timeout=…)` kills the shell and orphans
+    the command that is actually stuck, so the deadline kills the whole group.
+    """
+    global _RUNNING_PGID
     os.makedirs(paths.gates, exist_ok=True)
-    r = subprocess.run(argv, shell=True, cwd=wt, capture_output=True, text=True)
-    if r.returncode == 0:
+    p = subprocess.Popen(argv, shell=True, cwd=wt, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, start_new_session=True)
+    _RUNNING_PGID = p.pid
+    try:
+        try:
+            out, err = p.communicate(timeout=timeout or None)
+        except subprocess.TimeoutExpired:
+            util.kill_group(p.pid, p)
+            out, err = p.communicate()
+            path = _write_log(paths, role, task, commit, name, "timeout", argv, out, err)
+            raise GateTimeoutError(timeout, path)
+    finally:
+        _RUNNING_PGID = None
+    if p.returncode == 0:
         return
+    path = _write_log(paths, role, task, commit, name, p.returncode, argv, out, err)
+    raise GateFailedError(p.returncode, path)
+
+
+def _write_log(paths, role, task, commit, name, status, argv, out, err):
+    """A timed-out gate writes the same log shape as a failed one, with `exit: timeout`
+    and whatever output it had produced so far."""
     path = log_path(paths, role, task, commit, name)
     util.atomic_write(
         path,
-        f"exit: {r.returncode}\nargv: {argv}\n--- stdout ---\n{r.stdout}--- stderr ---\n{r.stderr}",
+        f"exit: {status}\nargv: {argv}\n--- stdout ---\n{out}--- stderr ---\n{err}",
     )
-    raise GateFailedError(r.returncode, path)
+    return path
 
 
 def validate_for_belt(catalog, belt):

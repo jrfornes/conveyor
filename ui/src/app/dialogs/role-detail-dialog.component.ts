@@ -2,6 +2,7 @@ import { Component, EventEmitter, Inject, OnInit, Output, inject } from '@angula
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { MAT_DIALOG_DATA, MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { SkillInfo } from '../models';
@@ -28,6 +29,7 @@ export interface RoleDetailDialogResult {
     MatDialogModule,
     MatButtonModule,
     MatChipsModule,
+    MatTooltipModule,
     MatSnackBarModule,
   ],
   template: `
@@ -56,15 +58,11 @@ export interface RoleDetailDialogResult {
             @for (s of data.availableSkills; track s.name) {
               <mat-chip
                 [highlighted]="assignedSkills.includes(s.name)"
+                [matTooltip]="skillTooltip(s)"
+                [matTooltipDisabled]="!skillTooltip(s)"
                 (click)="toggleSkill(s.name)"
               >
                 {{ s.name }}
-                @if (s.description) {
-                  <span class="desc"> — {{ s.description }}</span>
-                }
-                @if (s.source) {
-                  <span class="desc"> ({{ s.source }})</span>
-                }
               </mat-chip>
             }
           </mat-chip-set>
@@ -112,7 +110,6 @@ export interface RoleDetailDialogResult {
       margin: 0; font-size: 12px; text-transform: uppercase;
       letter-spacing: 0.04em; color: rgba(0,0,0,0.55);
     }
-    .desc { font-size: 11px; opacity: 0.7; }
     mat-chip { cursor: pointer; }
   `,
 })
@@ -168,6 +165,13 @@ export class RoleDetailDialogComponent implements OnInit {
     this.assignedSkills = this.assignedSkills.includes(name)
       ? this.assignedSkills.filter((s) => s !== name)
       : [...this.assignedSkills, name];
+  }
+
+  skillTooltip(skill: SkillInfo): string {
+    const parts: string[] = [];
+    if (skill.description) parts.push(skill.description);
+    if (skill.source) parts.push(`(${skill.source})`);
+    return parts.join(' ');
   }
 
   saveRole(): void {
