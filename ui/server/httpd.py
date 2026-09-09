@@ -85,6 +85,8 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/workflows/"):
                 slug = urllib.parse.unquote(path.split("/api/workflows/", 1)[1])
                 return self._json(200, state.build_workflow_detail(self.repo_root, slug))
+            if path == "/api/cost":
+                return self._json(200, state.build_cost(self.repo_root))
             if path == "/api/models":
                 return self._json(200, state.list_models(self.repo_root))
             if path == "/api/intake":

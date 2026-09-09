@@ -293,9 +293,10 @@ Everything from v0.1 and the north-star document that is not in the MVP. Each it
 - **Deferred because:** the operator is at the machine and `conveyor status` + `tail -f` cover supervision; the dashboard is roughly half the total build.
 - **Adding it:** exactly as specified. The spec's constraint "read-only view first, controls second" means `GET /api/state` can be built over the MVP's files with no protocol change; controls wrap `conveyor approve/reject/task/answer`. Decisions taken in v0.1 stand: `needs-human` is a lane rendered before Done; elapsed meter first, tokens later; pack mode before forge mode; tmux behind a thin adapter.
 
-### B.7 Token and cost ceilings, loop detection (north star: Idea 8; v0.1 BUD-3, BUD-4)
-- **Deferred because:** wall-clock and retry ceilings cover the observed failures; token metering depends on what Cursor's stream-json reports.
-- **Adding it:** parse usage from the run log if present, sum per task in `board.tsv`, park on ceiling. Loop detection: park when the same `(role, task, commit)` handoff is seen twice.
+### B.7 Loop detection (north star: Idea 8; v0.1 BUD-3, BUD-4)
+- **Metering and token ceilings are built** (`docs/plans/token-cost.md`): each agent run writes a `.usage.json` sidecar beside its log, `conveyor cost` reads it, and `max_tokens=N` on a role line parks the task `max-tokens`. Usage lives in its own files, not in a `board.tsv` column — widening `COLS` would make every pre-existing row malformed. Dollar ceilings are still out: Conveyor ships no price table.
+- **Still deferred — loop detection.** Park when the same `(role, task, commit)` handoff is seen twice.
+- **Deferred because:** it shares nothing with metering but this appendix entry, and the ceilings above bound the same failure by cost.
 
 ### B.8 Durability extras (north star: Idea 8; v0.1 DUR-3, DUR-4)
 - **Deferred because:** MVP runs are short and the loops are the only processes.

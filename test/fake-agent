@@ -5,6 +5,8 @@
   draft <to> <task> <verdict>                  write ./tmp/handoff.txt ($TASK, $ROLE expand)
   write <file> "<text>"                        write a file in the worktree
   handoff                                      run handoff.sh ./tmp/handoff.txt
+  usage <in> <out>                             emit a final result event carrying usage
+  usage-msg <in> <out>                         emit one per-message usage event
   sleep <n> | crash | exit <n>
   spawn-child <n>                              background `sleep <n>`; pid in tmp/child.pid
   ignore-term                                  install SIG_IGN for SIGTERM
@@ -86,6 +88,12 @@ def main():
         elif cmd == "handoff":
             r = subprocess.run(["handoff.sh", "./tmp/handoff.txt"], capture_output=True, text=True)
             emit(type="tool", name="handoff.sh", exit=r.returncode, output=r.stdout + r.stderr)
+        elif cmd == "usage":
+            emit(type="result", subtype="success",
+                 usage={"input_tokens": int(rest[0]), "output_tokens": int(rest[1])})
+        elif cmd == "usage-msg":
+            emit(type="assistant",
+                 message={"usage": {"input_tokens": int(rest[0]), "output_tokens": int(rest[1])}})
         elif cmd == "sleep":
             time.sleep(float(rest[0]))
         elif cmd == "spawn-child":

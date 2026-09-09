@@ -29,6 +29,7 @@ class Role:
     max_retries: int = 3
     max_minutes: int = 120
     max_attempts: int = 3
+    max_tokens: int = 0     # 0 = unbounded; the only ceiling with no default
     args: list = field(default_factory=list)
 
 
@@ -123,7 +124,7 @@ def _parse_role(parts, lineno):
         raise ConfigError(f"line {lineno}: invalid role name {name!r}")
     role = Role(name, model)
     for tok in parts[3:]:
-        m = re.match(r"^(max_retries|max_minutes|max_attempts)=(\d+)$", tok)
+        m = re.match(r"^(max_retries|max_minutes|max_attempts|max_tokens)=(\d+)$", tok)
         if m:
             setattr(role, m.group(1), int(m.group(2)))
         else:
@@ -281,9 +282,12 @@ def save(root, cfg):
     lines = ["# Conveyor pipeline configuration. Written by `conveyor workflow activate`.\n\n"]
     for r in cfg.roles:
         extra = (" " + " ".join(r.args)) if r.args else ""
+        # max_tokens is written only when set: an untouched file stays byte-identical,
+        # so presets.resolve() does not flip a built-in workflow to `custom`.
+        budget = f" max_tokens={r.max_tokens}" if r.max_tokens else ""
         lines.append(
             f"role {r.name:<9} {r.model} max_retries={r.max_retries} "
-            f"max_minutes={r.max_minutes} max_attempts={r.max_attempts}{extra}\n"
+            f"max_minutes={r.max_minutes} max_attempts={r.max_attempts}{budget}{extra}\n"
         )
     # Always written, resolved: `gate <role>` or `gate none`. A file Conveyor
     # wrote never relies on the legacy three-role inference in gate_role().

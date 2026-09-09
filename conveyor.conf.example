@@ -1,6 +1,6 @@
 # Conveyor pipeline configuration. One role per line, in pipeline order.
 #
-#   role <name> <model> [max_retries=N] [max_minutes=N] [max_attempts=N] [cli-args...]
+#   role <name> <model> [max_retries=N] [max_minutes=N] [max_attempts=N] [max_tokens=N] [cli-args...]
 #
 # <model> is passed verbatim to `cursor-agent --model`. Run `cursor-agent --list-models`
 # (or `cursor-agent models`) to see what your subscription exposes; `conveyor start`
@@ -13,6 +13,13 @@
 
 role coder    composer-2.5  max_retries=3 max_minutes=120 max_attempts=3
 role reviewer composer-2.5  max_minutes=60 max_attempts=2
+
+# Optional token budget. max_tokens=N parks the task `max-tokens` once its total
+# spend passes N. Task-wide, not per role, so a coder <-> reviewer ping-pong is one
+# budget; absent (or 0) means unbounded. `conveyor cost` shows the totals it counts.
+# Ceilings are on tokens, never dollars: Conveyor ships no price table.
+#
+#   role coder    composer-2.5  max_retries=3 max_minutes=120 max_attempts=3 max_tokens=500000
 
 # Optional human gate. `gate <role>` holds that role's outbound `ready` in
 # .conveyor/approvals/pending/ until you run `conveyor approve <id>` (or

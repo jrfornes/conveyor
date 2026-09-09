@@ -16,6 +16,20 @@ class RenameOnly(ConveyorTest):
             for f in files:
                 self.assertFalse(f.endswith(".tmp"), os.path.join(dirpath, f))
 
+    def test_usage_sidecar_is_written_once_by_rename(self):
+        """The sidecar is a derived index of one run log: atomic_write, then never
+        re-opened. A `.usage.json.tmp` left behind would mean a partial bill on disk."""
+        fx = self.run_pipeline("demo", coder=('commit "Implement $TASK"\nusage 4000 500\n'
+                                              'draft reviewer $TASK ready\nhandoff\nhandoff\n'))
+        d = os.path.join(fx.paths.logs, "coder")
+        sidecars = [f for f in os.listdir(d) if f.endswith(".usage.json")]
+        self.assertEqual(sidecars, ["demo_operator-000001_a1.usage.json"])
+        self.assertEqual([f for f in os.listdir(d) if f.endswith(".tmp")], [])
+        p = os.path.join(d, sidecars[0])
+        before = (os.stat(p).st_ino, read(p))
+        fx.loop("coder")               # nothing left to process: the file must not move
+        self.assertEqual((os.stat(p).st_ino, read(p)), before)
+
     def test_setup_stamp_is_replaced_by_rename_never_appended(self):
         """setup.stamp is per-role queue state: written like seq, never in place."""
         import test_worktree_setup as ws

@@ -18,7 +18,7 @@ if sys.version_info < (3, 10):
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
 from conveyor import (board, config, handoff, inbox, layout, queue,  # noqa: E402
-                      setup as setuplib, util)
+                      setup as setuplib, usage, util)
 
 SESSION_RE = re.compile(r'"session_?[iI]d"\s*:\s*"([^"]+)"')
 VALIDATOR_RE = re.compile(r'(?:E_[A-Z_]+|AUDIT_REQUIRED): [^"\\\n]*')
@@ -40,6 +40,13 @@ def stamped(line):
     if "at" in ev:
         return raw + "\n"
     return json.dumps({"at": util.now(), **ev}) + "\n"
+
+
+def usage_text(scanned, elapsed):
+    """One line of spend for the run log. `-` where the agent reported nothing:
+    an absent number is never printed as 0 (plan decisions 3 and 4)."""
+    return (f"in {usage.human(scanned['input'])}, out {usage.human(scanned['output'])}, "
+            f"{int(elapsed) // 60}m{int(elapsed) % 60:02d}s ({scanned['source']})")
 
 
 def stamp_stream(src, dst):
@@ -192,6 +199,9 @@ class Loop:
             over = age >= self.me.max_minutes * 60 if intake else age > self.me.max_minutes * 60
             if over:
                 return park("max-minutes", f"task started {started}, exceeds max_minutes {self.me.max_minutes}")
+        spent = self.over_tokens(task)
+        if spent is not None:
+            return park("max-tokens", f"{usage.human(spent)} tokens over max_tokens {self.me.max_tokens}")
         attempt, session, last_err, ran = int(h.get("attempt", 1)), h.get("session"), None, False
         killed = None
         while True:
@@ -222,6 +232,12 @@ class Loop:
                 handoff.stamp(path, attempt=attempt, **({"session": session} if session else {}))
                 if attempt > self.me.max_attempts:
                     return park("max-attempts", f"{attempt - 1} agent runs ended without a valid handoff")
+                # Amends §6.6: the budget is also checked between attempts. A task can
+                # spend all of it inside one item, and a ceiling that only fires on the
+                # next dequeue bounds nothing. No running agent is ever killed for cost.
+                spent = self.over_tokens(task)
+                if spent is not None:
+                    return park("max-tokens", f"{usage.human(spent)} tokens over max_tokens {self.me.max_tokens}")
                 if self.stop_requested():
                     sys.exit(0)
             if not os.path.exists(os.path.join(self.wt, ".cursor", "rules", "conveyor-role.mdc")):
@@ -242,6 +258,18 @@ class Loop:
             util.crash_point("after-agent")
             killed = kill_detail
             ran = True
+
+    def over_tokens(self, task):
+        """Tokens billed to this task so far when they exceed this role's ceiling.
+
+        `max_tokens=0` is unbounded, and a total no agent reported (every sidecar
+        `source: none`) is unknown, not zero: Conveyor refuses rather than parks a
+        task on a number it invented (PRD §5.5). Task-wide across every role and
+        attempt, read from the current role's config -- the `max_minutes` rule."""
+        if not self.me.max_tokens:
+            return None
+        spent = usage.task_total(self.paths, task)
+        return spent if spent is not None and spent > self.me.max_tokens else None
 
     def deadline_seconds(self, started):
         """One run's wall-clock budget: what is left of `max_minutes` for this task.
@@ -369,6 +397,7 @@ class Loop:
                  "text": f"attempt {attempt}, model {self.me.model}"
                          f"{', resumed session' if session else ''}"})))
             lf.flush()
+            started = time.monotonic()
             try:
                 # start_new_session: the agent leads its own process group, so the
                 # deadline (and `stop --now`) can take its children with it. Without
@@ -421,9 +450,20 @@ class Loop:
                 print(f"{task}: attempt {attempt} killed {said}", flush=True)
                 detail = (f"killed attempt {attempt} after {span}, "
                           f"exceeds max_minutes {self.me.max_minutes}")
+            # Every agent line is on disk now, so one read serves the usage scan and
+            # both regexes below. The usage record goes in before `exit`, which stays
+            # the last line of a run (§6.9). A run killed on its deadline is billed
+            # too: the tokens it spent before the kill were still spent.
+            text = util.read_text(log)
+            scanned = usage.scan(text)
+            lf.write(stamped(json.dumps({"type": "conveyor", "event": "usage",
+                                         "text": usage_text(scanned, elapsed),
+                                         "input_tokens": scanned["input"],
+                                         "output_tokens": scanned["output"],
+                                         "source": scanned["source"]})))
             lf.write(stamped(json.dumps({"type": "conveyor", "event": "exit", "exit": rc})))
         print(f"{task}: attempt {attempt} agent exited {rc}", flush=True)
-        text = util.read_text(log)
+        usage.record(self.paths, self.role, task, hid, attempt, scanned, elapsed, rc)
         m = SESSION_RE.search(text)
         errs = VALIDATOR_RE.findall(text)
         return (m.group(1) if m else session), (errs[-1] if errs else None), detail

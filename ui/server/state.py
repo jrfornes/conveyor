@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(REPO, "lib"))
 
 from conveyor import (  # noqa: E402
     agent, board, config, gates, handoff, intake as intakelib, jira as jiralib,
-    layout, presets, queue, roles, util, workflows,
+    layout, presets, queue, roles, usage, util, workflows,
 )
 
 
@@ -605,3 +605,21 @@ def build_workflow_detail(root, slug):
         "marks": {"operator": workflows.avatar("operator"),
                   "done": workflows.avatar("done")},
     }
+
+
+def build_cost(root):
+    """`GET /api/cost`: what every task spent, same numbers as `conveyor cost`.
+
+    Phase 1 is the API only — the board card's token badge is a Stage 5 item. A UI
+    that shows a number the CLI cannot is the failure mode this product refuses.
+    `total: null` means no run reported usage; it never means zero.
+    """
+    paths = layout.Paths(root)
+    by_task = usage.read_all(paths)
+    names = [r["name"] for r in board.read(paths)]
+    names += sorted(t for t in by_task if t not in names)
+    tasks = []
+    for name in names:
+        runs = by_task.get(name, [])
+        tasks.append({"task": name, "runs": runs, "total": usage.total(runs)})
+    return {"tasks": tasks, "total": usage.total([r for t in tasks for r in t["runs"]])}

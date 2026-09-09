@@ -41,7 +41,7 @@ plans 3–6 are deliberately not written up front.
 | [Log pane mirror](log-pane-mirror.md) | F9 against jsonl: `conveyor log -f`, live dark pane, pop-out `/agents/:role`. Not tmux / B.2. **planned** |
 | [Worktree setup](worktree-setup.md) | `[global] worktree_setup` run on create and on lockfile change, per role. Not a build system. **built** — verification against a real NX repo outstanding |
 | [Run deadlines](run-deadlines.md) | `max_minutes` kills the run; `E_GATE_TIMEOUT` bounds gates. Process-group kill, no watchdog / B.2. **built** |
-| [Token cost](token-cost.md) | Per-run usage sidecars, `conveyor cost`, `max_tokens` ceiling. PRD B.7 metering half; not loop detection. **planned** |
+| [Token cost](token-cost.md) | Per-run usage sidecars, `conveyor cost`, `max_tokens` ceiling. PRD B.7 metering half; not loop detection. **built** — step 0 (a live run to confirm what `cursor-agent` reports) is still open |
 
 ## Scans
 
@@ -51,7 +51,7 @@ plans 3–6 are deliberately not written up front.
 
 ## Baseline
 
-`cd test && python3 -m unittest discover -p 'test_*.py'` → **416 tests, ~430s** (104 → 120 → 206 → 390 → 416).
+`cd test && python3 -m unittest discover -p 'test_*.py'` → **471 tests, ~540s** (104 → 120 → 206 → 390 → 416 → 471).
 Every stage must leave this green.
 
 One known red: `test_inv11_restart.test_kill_running_loops_and_restart` fails in containers

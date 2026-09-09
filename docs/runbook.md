@@ -108,8 +108,8 @@ reviewer   idle                                            new: 1
 needs-human:
   fix-cache   max-retries   reviewer sent findings 4 times
 board:
-  add-login   coder        audit 2  retry 1
-  fix-cache   needs-human  audit 7  retry 4
+  add-login   coder        audit 2  retry 1  tok 450.4k
+  fix-cache   needs-human  audit 7  retry 4  tok -
 inbox:
   proj-9      awaiting-approval  Gaps
   proj-12     imported           -
@@ -126,7 +126,10 @@ intake sees exactly the first three sections. Items already past your decision (
   verdict to trust. Re-grade it; `conveyor inbox show <id>` prints what the reviewer actually wrote
 - `-` — not graded yet
 
-High `audit` with low `retry` means the coder is being challenged and fixing things itself: healthy. High `retry` means coder and reviewer disagree: read the findings in `git log conveyor-reviewer` and probably sharpen the task file.
+`tok` is what the task has spent so far, summed over every agent run in every role. `-` means no
+run reported usage — unknown, not free. It is never printed as `0`; `0` would be a real answer.
+
+High `audit` with low `retry` means the coder is being challenged and fixing things itself: healthy. High `retry` means coder and reviewer disagree: read the findings in `git log conveyor-reviewer` and probably sharpen the task file. High `tok` next to either is what that disagreement cost: every bounce re-runs an agent on a full context.
 
 ### 6.1 Reading `conveyor log`
 
@@ -138,6 +141,7 @@ High `audit` with low `retry` means the coder is being challenged and fixing thi
            Before resubmitting, re-read tasks/add-login.md and your role file.
 14:18:07 [tool] handoff.sh OK: coder-000001 queued for reviewer
           0
+14:18:07 [conveyor] usage in 88.1k, out 9.2k, 3m05s (result)
 14:18:07 [conveyor] exit 0
 ```
 
@@ -145,6 +149,10 @@ The header names the log file and when the run started; each line is dated with 
 same timezone as `board.tsv` and every handoff header — so gaps show you where an agent spent its
 time. A wrapped line continues in the clock's own column. Lines from before Conveyor dated its logs
 show a blank clock instead.
+
+The `usage` line is what that one run cost, and `(result)` is where the number came from —
+`conveyor cost` explains the three sources. A run whose agent reported nothing reads
+`in -, out -` rather than zeros.
 
 `loop.log` in the same directory is the loop's own timeline (item picked up, attempt started, agent
 exit code, `forwarded`/`merged`, parks), one dated line each.
@@ -160,6 +168,50 @@ A run that outlived its `max_minutes` was killed, and says so in both files:
 agent, or something it spawned, was wedged rather than merely busy. That is the first thing to look at before deciding the ceiling is too
 tight. If the agent had already handed off before it wedged, nothing parks: the outbox is the only
 signal, and the item is forwarded as usual.
+
+### 6.2 Reading `conveyor cost`
+
+`conveyor cost` is the same numbers per task, newest first:
+
+```
+TASK          RUNS  IN        OUT      TOTAL     WALL
+add-login       11  412.3k    38.1k    450.4k    47m
+fix-cache        4  198.0k    12.7k    210.7k    18m
+              ----  --------  -------  --------  -----
+                15  610.3k    50.8k    661.1k    65m
+2 tasks, 15 runs.  3 runs reported no usage.
+```
+
+Name a task for one row per agent run, in the order they happened:
+
+```
+add-login   coder-000003
+ROLE      ATTEMPT  IN        OUT      TOTAL     WALL   SOURCE
+coder           1  88.1k     9.2k     97.3k     6m     result
+coder           2  91.4k     7.8k     99.2k     5m     result
+reviewer        1  63.0k     4.1k     67.1k     3m     result
+reviewer        1  -         -        -         4m     none
+                   --------  -------  --------  -----
+                   242.5k    21.1k    263.6k    18m
+max_tokens 500000 (coder) — 52% used.
+```
+
+`SOURCE` is where the number came from and is worth a glance the first time you run this against a
+new agent version: `result` is a total the agent reported at the end of the run, `messages` is the
+sum of its per-message reports, and `none` is a run that said nothing — its row is all `-` and it is
+counted in the trailing "reported no usage" line rather than added in as zero. A run that never
+finished has no row at all. The last line appears only when the task's current lane sets a budget.
+
+Conveyor records tokens, not money. A `cost_usd` is kept only when the agent itself reports one:
+prices go stale, and a made-up dollar figure on your screen is worse than no figure.
+
+**Budgets.** `max_tokens=N` on a `role` line in `conveyor.conf` parks the task with reason
+`max-tokens` once the task's total passes `N`. It is task-wide, not per role — a coder ↔ reviewer
+ping-pong is one budget — and it is checked between attempts as well as before each item, so a task
+cannot burn the whole budget inside one handoff. A running agent is never killed for cost. Absent (or
+`0`) means unbounded, and a task whose runs all reported nothing never parks: Conveyor will not park
+on a number it invented. `conveyor resume` does not reset the total; raise `max_tokens` if you want
+a bigger budget.
 
 ## 7. Recovery
 

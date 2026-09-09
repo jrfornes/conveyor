@@ -63,6 +63,7 @@ Every script reads identity from `CONVEYOR_ROLE` and `CONVEYOR_WORKTREE`. No scr
     logs/
       <role>/
         <task-name>_<id>_a<attempt>.jsonl   one agent run, every line dated (§6.9)
+        <task-name>_<id>_a<attempt>.usage.json  what that run spent (§6.9)
         loop.log                            the loop's own timeline (§6.11)
       gates/
         <role>-<task>-<commit>.txt
@@ -545,6 +546,9 @@ loop:
     if attempt > max_attempts:
         park(reason: max-attempts)
         break
+    if max_tokens and task token total > max_tokens:
+        park(reason: max-tokens)          -- §6.6; the budget is also checked here
+        break
     (loop; next prompt includes the last validator error, if any, and --resume <session>)
 ```
 
@@ -593,14 +597,21 @@ Every step is safe to repeat. The "id present anywhere" check is what makes a cr
 
 ### 6.6 Ceilings
 
-Checked at the start of §6.3, never mid-run:
+Checked at the start of §6.3, and no ceiling but `max_minutes` ever fires inside a run: `max_tokens` is checked again between attempts, `max_minutes` again *during* the run as a deadline on the agent process (both below).
 
 | Ceiling | Source | Test | Park reason |
 |---|---|---|---|
 | `max_retries` | config per role (applies to `coder`) | `retry_count > max_retries` | `max-retries` |
 | `max_minutes` | config per role | `now − first dequeued_at for this task_id > max_minutes`, **and** a deadline on the run itself (§6.9): what is left of the budget, floored at 60 s | `max-minutes` |
 | `max_attempts` | config per role | §6.3 | `max-attempts` |
+| `max_tokens` | config per role; absent = `0` = unbounded | `sum of every usage sidecar for this task > max_tokens` | `max-tokens` |
 | `worktree_setup_timeout` | `[global]`, default 1800 s (`0` = unbounded) | §6.3 | `setup-failed` |
+
+`max_tokens` is task-wide and read from the current role's config, exactly as `max_minutes` is: the total is the sum over every `.usage.json` (§6.9) carrying this task, across all roles and attempts, so one coder ↔ reviewer ping-pong is bounded as a single budget.
+
+It is also checked **between attempts** of a single item, where §6.3 checks `attempt > max_attempts`. A task can spend its whole budget inside attempts 1 and 2 of one item, and a ceiling that fired only on the next dequeue would bound nothing. No running agent is ever killed for cost, though: the check sits between attempts, never inside one. Only `max_minutes` kills a run in flight.
+
+A total no agent reported cannot fire the ceiling. When every sidecar for a task is `source: none` the spend is **unknown**, not zero, and the loop refuses rather than parks a task on a number it invented (§5.5 of the PRD). Ceilings are on tokens only; Conveyor ships no price table and never parks on a dollar figure.
 
 `max_minutes` is enforced twice over: once before the run, as the table says, and once *during* it. The second is a deadline on the agent process (§6.9), because the pre-flight check alone can never fire for a task whose first run never returns. A run killed by the deadline parks with the same `max-minutes` reason; it is **not** a failed attempt, so `attempt` does not advance and there is no `--resume` retry — the budget it would retry on is already spent.
 
@@ -660,6 +671,20 @@ A killed run writes one extra record before the exit record:
 
 The loop dates its own records the same way. It writes `{"at":…,"type":"conveyor","event":"run","role":…,"task":…,"attempt":<n>,"model":…,"resumed":<bool>,"text":…}` before launching, records the exit code as the last line (`{"at":…,"type":"conveyor","event":"exit","exit":<n>}`), and extracts the session id from the first event that carries one. Exit code is informational only; §6.3's outbox check decides.
 
+**Usage sidecar.** After the run, the loop reads the completed log once and writes what the agent said it spent to `.conveyor/logs/<role>/<task>_<id>_a<attempt>.usage.json` — same key, same directory as the `.jsonl` it is derived from — through the atomic write of §8.3, and never re-opens it. Immediately before the `exit` record it writes the same numbers into the log as `{"at":…,"type":"conveyor","event":"usage","text":…,"input_tokens":…,"output_tokens":…,"source":…}`, so `conveyor log` shows a run's spend.
+
+The sidecar is a JSON object with `role`, `task`, `id`, `attempt`, `source`, `input`, `output`, `cache_read`, `cache_write`, `cost_usd`, `duration_s`, `exit`, `at`. `source` names the rule that produced the numbers, and the two rules are mutually exclusive:
+
+| `source` | Rule |
+|---|---|
+| `result` | a terminal event (`type: result`, or a final `subtype`) carried a `usage` object; it wins outright and per-message events are ignored |
+| `messages` | no such event; every per-message `usage` object is summed |
+| `none` | no `usage` object anywhere; every token field is `null` |
+
+A cumulative total must not be summed and per-message deltas must not be last-won, and nothing in a stream says which it emits — so the rule that produced a number is recorded next to it, and a wrong guess is visible in the file instead of silently doubling a bill. A `usage` object is read from the top level of an event and from `message`; unrecognised keys are ignored, never summed. `cost_usd` is recorded only if the agent reports it and is `null` otherwise: Conveyor ships no price table.
+
+**Every finished run writes a sidecar, including one that reported nothing.** An absent file means the loop did not finish the run; a file with `source: none` means the agent told us nothing. Those are different states and the operator must be able to tell them apart. `null` is never rendered as `0`.
+
 ### 6.10 Parking
 
 ```
@@ -669,9 +694,9 @@ write needs-human/<task>/reason:   <reason>\n<one line of detail>\n<timestamp>
 board: lane=needs-human, updated_at
 ```
 
-Park reasons: `max-retries`, `max-minutes`, `max-attempts`, `merge-conflict`, `untracked-collision`, `multiple-handoffs`, `no-rules`, `no-agent`, `no-task-file`, `setup-failed`, `done-command`.
+Park reasons: `max-retries`, `max-minutes`, `max-attempts`, `max-tokens`, `merge-conflict`, `untracked-collision`, `multiple-handoffs`, `no-rules`, `no-agent`, `no-task-file`, `setup-failed`, `done-command`.
 
-`conveyor resume <task> [--to <role>]` (default `--to` = the item's `to`, or `coder` for a coder item) renames `item.handoff` into `roles/<role>/inbox/new/` under its original filename, resets `attempt` to 1 in the header, and sets the board lane. `retry_count`, `audit_count`, and `task_id` are never reset. The operator is expected to have fixed something first (edited the task file and committed on main, or fixed the conflict); Conveyor does not check. Resume does not touch the worktree, so it does not re-run setup either — the next merge re-checks the stamp, and a `setup-failed` park left no stamp to match.
+`conveyor resume <task> [--to <role>]` (default `--to` = the item's `to`, or `coder` for a coder item) renames `item.handoff` into `roles/<role>/inbox/new/` under its original filename, resets `attempt` to 1 in the header, and sets the board lane. `retry_count`, `audit_count`, `task_id`, and the accumulated token total are never reset — an operator who wants a bigger budget raises `max_tokens`. The operator is expected to have fixed something first (edited the task file and committed on main, or fixed the conflict); Conveyor does not check. Resume does not touch the worktree, so it does not re-run setup either — the next merge re-checks the stamp, and a `setup-failed` park left no stamp to match.
 
 ### 6.11 The loop log
 
@@ -812,6 +837,7 @@ These are the properties tests assert. Each is stated so that violating it is de
 | `conveyor uninstall [--yes] [--bundle]` | Stop live loops if needed; remove worktrees, local `conveyor-*` branches, `.conveyor/`, and the byline hook when it matches the shipped copy. `--bundle` also removes init files (`constitution/`, `roles/`, `conveyor.conf`, `tasks/`, etc.). Refused in the conveyor source checkout. `--yes` required. |
 | `conveyor task <name> [< text]` | Validate name; write and commit `tasks/<name>.md` on main (`By operator.`); append board row (lane `coder`, counters 0); write an operator handoff `to: coder`, `verdict: ready`, `commit` = main HEAD, into `roles/operator/outbox/`; run the operator delivery sweep (§6.5) immediately. |
 | `conveyor status` | Print §2.3 state for each role, `needs-human/` with reasons, and `board.tsv`. Pure read. |
+| `conveyor cost [<task>]` | Print the token spend recorded in the `.usage.json` sidecars (§6.9): one row per board task, or one row per agent run for a single task. `-` for a run or task no agent reported usage for, never `0`. Pure read: no lock, no writes, works on a stopped pipeline. |
 | `conveyor log <role> [<task>]` | Pretty-print the newest matching `.jsonl`: a header naming the file and the run's first timestamp, then one line per event as `<HH:MM:SS UTC> [<type>] <detail>` (blank clock column for a line with no `at`; a wrapped detail is indented into the same column). Pure read. |
 | `conveyor resume <task> [--to <role>]` | §6.10. Refused when the task is parked but has no board row, before anything is renamed. |
 | `conveyor import --source manual\|jira [--title ...]` | Read the ticket body from stdin (Jira: fetch each key found in it, §2.4 adapters). Create `.conveyor/inbox/<id>/` by renaming `.tmp-<id>/` into place, `status: imported`. Never writes `tasks/`. A per-key fetch failure prints `failed <KEY>  <status> <reason>` and creates no item. |
