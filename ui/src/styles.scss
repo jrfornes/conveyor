@@ -37,6 +37,21 @@ html {
 }
 
 .intake-review-dialog .mat-mdc-dialog-container,
-.task-detail-dialog .mat-mdc-dialog-container {
+.task-detail-dialog .mat-mdc-dialog-container,
+.workflow-edit-dialog .mat-mdc-dialog-container,
+.role-detail-dialog .mat-mdc-dialog-container {
   max-width: 95vw;
+}
+
+// Material caps `.mat-mdc-dialog-panel` at 560px via --mat-dialog-container-max-width.
+// Raise it on the overlay pane itself so width: 720px is not ignored.
+.cdk-overlay-pane.workflow-edit-dialog.mat-mdc-dialog-panel,
+.cdk-overlay-pane.role-detail-dialog.mat-mdc-dialog-panel {
+  --mat-dialog-container-max-width: min(720px, 95vw);
+  max-width: min(720px, 95vw);
+  width: min(720px, 95vw);
+}
+
+.workflow-edit-dialog .mdc-label {
+  white-space: normal;
 }

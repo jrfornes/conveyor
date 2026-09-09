@@ -22,6 +22,13 @@ export interface WorkflowEditData {
   takenNames: string[];
 }
 
+/** Shared open() options so create / edit / duplicate cannot drift on width. */
+export const WORKFLOW_EDIT_DIALOG_OPTIONS = {
+  width: '720px',
+  maxWidth: '95vw',
+  panelClass: 'workflow-edit-dialog',
+};
+
 @Component({
   selector: 'app-workflow-edit-dialog',
   standalone: true,
@@ -105,7 +112,13 @@ export interface WorkflowEditData {
     </mat-dialog-actions>
   `,
   styles: `
-    mat-dialog-content { min-width: 680px; max-width: 720px; }
+    :host { display: block; max-width: 100%; }
+    mat-dialog-content {
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow-x: hidden;
+    }
     .full { width: 100%; }
     h4 {
       margin: 8px 0 4px; font-size: 12px; text-transform: uppercase;
@@ -125,7 +138,11 @@ export interface WorkflowEditData {
     .label { font-size: 12px; color: rgba(0,0,0,0.55); }
     .help { font-size: 12px; color: rgba(0,0,0,0.6); margin: 8px 0 0; }
     .gates { display: flex; flex-direction: column; gap: 2px; }
-    .file { margin-right: auto; font-size: 12px; color: rgba(0,0,0,0.55); }
+    .gates mat-radio-button { white-space: normal; }
+    .file {
+      margin-right: auto; font-size: 12px; color: rgba(0,0,0,0.55);
+      overflow-wrap: anywhere;
+    }
   `,
 })
 export class WorkflowEditDialogComponent {

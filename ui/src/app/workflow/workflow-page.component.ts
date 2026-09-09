@@ -10,6 +10,7 @@ import { WorkflowTableComponent } from './workflow-table.component';
 import {
   WorkflowEditDialogComponent,
   WorkflowEditData,
+  WORKFLOW_EDIT_DIALOG_OPTIONS,
 } from '../dialogs/workflow-edit-dialog.component';
 
 @Component({
@@ -145,7 +146,7 @@ export class WorkflowPageComponent implements OnInit {
       takenNames: this.list.workflows.map((w) => w.name.toLowerCase()),
     };
     this.dialog
-      .open(WorkflowEditDialogComponent, { width: '720px', data })
+      .open(WorkflowEditDialogComponent, { ...WORKFLOW_EDIT_DIALOG_OPTIONS, data })
       .afterClosed()
       .subscribe((v?: WorkflowEdit) => {
         if (v) this.save(v);
