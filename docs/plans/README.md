@@ -39,6 +39,7 @@ plans 3–6 are deliberately not written up front.
 | --- | --- |
 | [Work-queue liveness](work-queue-liveness.md) | Per-role `busy` / `idle` / `stopped` / `stalled` / `dead`. `status` is the contract. Not a watchdog / B.2. **planned** |
 | [Log pane mirror](log-pane-mirror.md) | F9 against jsonl: `conveyor log -f`, live dark pane, pop-out `/agents/:role`. Not tmux / B.2. **planned** |
+| [Run deadlines](run-deadlines.md) | `max_minutes` kills the run; `E_GATE_TIMEOUT` bounds gates. Process-group kill, no watchdog / B.2. **planned — before M3** |
 | [Token cost](token-cost.md) | Per-run usage sidecars, `conveyor cost`, `max_tokens` ceiling. PRD B.7 metering half; not loop detection. **planned** |
 
 ## Scans
