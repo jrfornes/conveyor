@@ -386,9 +386,42 @@ Where the protocol left a choice, the refusing option was taken.
     an agent that buffers is the time Conveyor saw them, not the time the agent
     produced them.
 
+49. **A `result` usage event wins over per-message ones; they are never mixed.**
+    A stream can report usage as a cumulative total on its terminal event or as
+    per-message deltas, and nothing in the stream says which. Summing a cumulative
+    total double-bills; last-winning a delta under-bills. So `usage.scan` takes the
+    terminal event's usage outright when there is one and ignores every per-message
+    event, sums per-message usage only in its absence, and writes which rule fired as
+    `source` in the sidecar. A wrong guess is then visible in the file instead of
+    silently doubling a bill. The alias table (`input_tokens` / `prompt_tokens` /
+    `inputTokens`, and the rest) lives in one dict, `usage.ALIASES`, so a live run
+    against a new agent can extend it without touching the logic — the same shape as
+    the Jira `customfield_*` allowlist. Unrecognised keys are ignored, never summed.
+50. **Unknown usage never parks, and is never printed as `0`.** A task whose runs
+    all report `source: none` has an *unknown* total, not a zero one, so `max_tokens`
+    cannot fire on it (§5.5: refuse rather than guess) and every operator surface
+    renders it `-`. A finished run always writes a sidecar even when it reported
+    nothing: an absent file means the loop did not finish the run, which is a
+    different fact. `cost_usd` is stored only when the agent reports one — Conveyor
+    ships no price table, and ceilings are on tokens only.
+51. **The usage record in the run log names its token keys `input_tokens` /
+    `output_tokens`.** `output` is already in `cmd_log`'s `LOG_DETAIL_KEYS`, so a
+    record with a bare `output` key would print the raw number a second time after
+    the formatted `text`. The sidecar keeps the short `input` / `output` names; only
+    the log record spells them out.
+52. **Usage is a file per run, not a `board.tsv` column.** `board.COLS` is a fixed
+    8-tuple and `_load` treats any row with a different cell count as malformed,
+    keeping it out of `read()`. Widening it would make every pre-existing board row
+    invisible to `board.get`, which the role loop turns into `no-board-row` failures
+    on live tasks. The sidecar is a derived index of exactly one `.jsonl`, so it sits
+    beside it under the same key: no new lock, no new protocol directory, and
+    `cmd_log` filters on `.jsonl` and never sees it.
+
 ## Not built (PRD Appendix B)
 
 Nothing from Appendix B is implemented except the partial B.3/B.5 pieces
-described above (pipelines of any length, declared gate, intake approval). Hook points
+described above (pipelines of any length, declared gate, intake approval) and the
+metering half of B.7 (usage sidecars, `conveyor cost`, `max_tokens`; loop detection
+is still out). Hook points
 for the rest are marked with a single `# later: B.x` comment where a future
 change would go.

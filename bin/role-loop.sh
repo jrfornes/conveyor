@@ -17,7 +17,7 @@ if sys.version_info < (3, 10):
 
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(BIN, "..", "lib"))
-from conveyor import board, config, handoff, inbox, layout, queue, util  # noqa: E402
+from conveyor import board, config, handoff, inbox, layout, queue, usage, util  # noqa: E402
 
 SESSION_RE = re.compile(r'"session_?[iI]d"\s*:\s*"([^"]+)"')
 VALIDATOR_RE = re.compile(r'(?:E_[A-Z_]+|AUDIT_REQUIRED): [^"\\\n]*')
@@ -39,6 +39,13 @@ def stamped(line):
     if "at" in ev:
         return raw + "\n"
     return json.dumps({"at": util.now(), **ev}) + "\n"
+
+
+def usage_text(scanned, elapsed):
+    """One line of spend for the run log. `-` where the agent reported nothing:
+    an absent number is never printed as 0 (plan decisions 3 and 4)."""
+    return (f"in {usage.human(scanned['input'])}, out {usage.human(scanned['output'])}, "
+            f"{int(elapsed) // 60}m{int(elapsed) % 60:02d}s ({scanned['source']})")
 
 
 def stamp_stream(src, dst):
@@ -303,6 +310,7 @@ class Loop:
                  "text": f"attempt {attempt}, model {self.me.model}"
                          f"{', resumed session' if session else ''}"})))
             lf.flush()
+            started = time.monotonic()
             try:
                 self.agent = subprocess.Popen(cmd, cwd=self.wt, stdout=subprocess.PIPE,
                                               stderr=subprocess.STDOUT)
@@ -322,9 +330,19 @@ class Loop:
             rc = self.agent.wait()
             self.agent = None
             stamper.wait()  # every agent line is in the file before the exit record
+            elapsed = time.monotonic() - started
+            # The log is complete here and read once for all three scans below; the
+            # usage record goes in before `exit` so `exit` stays the last line (§6.9).
+            text = util.read_text(log)
+            scanned = usage.scan(text)
+            lf.write(stamped(json.dumps({"type": "conveyor", "event": "usage",
+                                         "text": usage_text(scanned, elapsed),
+                                         "input_tokens": scanned["input"],
+                                         "output_tokens": scanned["output"],
+                                         "source": scanned["source"]})))
             lf.write(stamped(json.dumps({"type": "conveyor", "event": "exit", "exit": rc})))
         print(f"{task}: attempt {attempt} agent exited {rc}", flush=True)
-        text = util.read_text(log)
+        usage.record(self.paths, self.role, task, hid, attempt, scanned, elapsed, rc)
         m = SESSION_RE.search(text)
         errs = VALIDATOR_RE.findall(text)
         return (m.group(1) if m else session), (errs[-1] if errs else None)

@@ -63,6 +63,7 @@ Every script reads identity from `CONVEYOR_ROLE` and `CONVEYOR_WORKTREE`. No scr
     logs/
       <role>/
         <task-name>_<id>_a<attempt>.jsonl   one agent run, every line dated (§6.9)
+        <task-name>_<id>_a<attempt>.usage.json  what that run spent (§6.9)
         loop.log                            the loop's own timeline (§6.11)
       gates/
         <role>-<task>-<commit>.txt
@@ -612,6 +613,20 @@ Before launching, the loop verifies `$CONVEYOR_AGENT_BIN` is an executable (a ba
 The stamper is its own process, not the loop: a `kill -9` of the loop leaves the agent and the stamper running, and the run still lands in the log (invariant 11).
 
 The loop dates its own records the same way. It writes `{"at":…,"type":"conveyor","event":"run","role":…,"task":…,"attempt":<n>,"model":…,"resumed":<bool>,"text":…}` before launching, records the exit code as the last line (`{"at":…,"type":"conveyor","event":"exit","exit":<n>}`), and extracts the session id from the first event that carries one. Exit code is informational only; §6.3's outbox check decides.
+
+**Usage sidecar.** After the run, the loop reads the completed log once and writes what the agent said it spent to `.conveyor/logs/<role>/<task>_<id>_a<attempt>.usage.json` — same key, same directory as the `.jsonl` it is derived from — through the atomic write of §8.3, and never re-opens it. Immediately before the `exit` record it writes the same numbers into the log as `{"at":…,"type":"conveyor","event":"usage","text":…,"input_tokens":…,"output_tokens":…,"source":…}`, so `conveyor log` shows a run's spend.
+
+The sidecar is a JSON object with `role`, `task`, `id`, `attempt`, `source`, `input`, `output`, `cache_read`, `cache_write`, `cost_usd`, `duration_s`, `exit`, `at`. `source` names the rule that produced the numbers, and the two rules are mutually exclusive:
+
+| `source` | Rule |
+|---|---|
+| `result` | a terminal event (`type: result`, or a final `subtype`) carried a `usage` object; it wins outright and per-message events are ignored |
+| `messages` | no such event; every per-message `usage` object is summed |
+| `none` | no `usage` object anywhere; every token field is `null` |
+
+A cumulative total must not be summed and per-message deltas must not be last-won, and nothing in a stream says which it emits — so the rule that produced a number is recorded next to it, and a wrong guess is visible in the file instead of silently doubling a bill. A `usage` object is read from the top level of an event and from `message`; unrecognised keys are ignored, never summed. `cost_usd` is recorded only if the agent reports it and is `null` otherwise: Conveyor ships no price table.
+
+**Every finished run writes a sidecar, including one that reported nothing.** An absent file means the loop did not finish the run; a file with `source: none` means the agent told us nothing. Those are different states and the operator must be able to tell them apart. `null` is never rendered as `0`.
 
 ### 6.10 Parking
 

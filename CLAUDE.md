@@ -26,7 +26,7 @@ bin/merge.sh            protocol §7
 bin/hooks/commit-msg    byline hook (protocol §7.4)
 bin/conveyor-ui         optional localhost cockpit launcher (`--demo` throwaway fixture)
 bin/README.md           language decision, install, "Ambiguities resolved"
-lib/conveyor/           board, config, handoff, layout, queue, util, presets, workflows, inbox, adapters, agent, intake, jira
+lib/conveyor/           board, config, handoff, layout, queue, util, presets, workflows, inbox, adapters, agent, intake, jira, usage
 intake/                 ticket-reviewer.md + rubric.md (operator-owned; not a coding role)
 ui/                     optional Angular cockpit (not protocol)
 test/fake-agent         scripted agent (protocol §11)
