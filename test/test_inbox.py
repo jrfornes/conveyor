@@ -895,6 +895,26 @@ class ApproveResumesLeftovers(ConveyorTest):
         self.assertNotIn("uncommitted", r.stderr)
         self.assertEqual(inbox.read_meta(fx.paths, "cave-setup")["status"], "imported")
 
+    def test_committed_matching_task_missing_from_worktree_is_idempotent(self):
+        fx = self.fx
+        self.write_leftover(self.SOURCE.strip() + "\n")
+        fx.git("commit", "-q", "-m", "Add task cave-setup", "--", "tasks/cave-setup.md")
+        os.remove(self.dest)
+        r = fx.conveyor("inbox", "approve", "cave-setup", "--force")
+        self.assertIn("approved cave-setup", r.stdout)
+        self.assertEqual(inbox.read_meta(fx.paths, "cave-setup")["status"], "ready")
+        self.assertEqual(fx.git("status", "--porcelain"), "")
+        self.assertIn("Lights work", fx.git("show", "HEAD:tasks/cave-setup.md"))
+
+    def test_committed_matching_task_on_disk_is_idempotent(self):
+        fx = self.fx
+        self.write_leftover(self.SOURCE.strip() + "\n")
+        fx.git("commit", "-q", "-m", "Add task cave-setup", "--", "tasks/cave-setup.md")
+        r = fx.conveyor("inbox", "approve", "cave-setup", "--force")
+        self.assertIn("approved cave-setup", r.stdout)
+        self.assertEqual(inbox.read_meta(fx.paths, "cave-setup")["status"], "ready")
+        self.assertEqual(fx.git("log", "-1", "--format=%s"), "Add task cave-setup")
+
 
 if __name__ == "__main__":
     unittest.main()
