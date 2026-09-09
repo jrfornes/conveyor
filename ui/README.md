@@ -47,7 +47,7 @@ Builds the Angular app on first run if it isn't built yet, then serves API + sta
 ## What the UI does
 
 - **Read:** inbox, kanban board (`board.tsv`), spec approvals, per-role work queue, needs-human strip, task markdown, agent logs, handoff queue peek, workflow + roles (starters, routes, role prompts, `project.md`)
-- **Write:** import (manual/Jira), grade/improve/approve/skip inbox items, start-task, spec approve/reject, new task, delete, resume, start/stop loops, workflow starter switch, role runtime, role prompts, `project.md`
+- **Write:** import (manual/Jira), grade/improve/approve/skip inbox items (Review opens a two-pane dialog with Approve and start), start-task, spec approve/reject, new task, delete, resume, start/stop loops, workflow starter switch, role runtime, role prompts, `project.md`
 
 The **Workflow** and **Roles** pages edit contract files. Named starters are **Review belt** (`coder → reviewer`) and **Spec then build** (`specifier → coder → reviewer`). Saved prompts and `project.md` apply on next Start — they do not hot-patch a running loop’s `.mdc`. Workflow switch and model/ceiling edits return 409 while loops are running.
 

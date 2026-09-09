@@ -83,7 +83,7 @@ import {
                       (click)="grade.emit(row.id)">Grade</button>
             }
             @if (row.status === 'graded' || row.status === 'awaiting-approval') {
-              <a mat-flat-button [routerLink]="['/inbox', row.id]">Review</a>
+              <button mat-flat-button (click)="review.emit(row.id)">Review</button>
             }
             @if (canStart(row)) {
               <button mat-flat-button (click)="start.emit(row)">Start</button>
@@ -156,6 +156,7 @@ export class InboxTableComponent {
   @Output() toggleIntake = new EventEmitter<void>();
   @Output() grade = new EventEmitter<string>();
   @Output() start = new EventEmitter<InboxItem>();
+  @Output() review = new EventEmitter<string>();
   cols = ['id', 'title', 'source', 'grade', 'status', 'actions'];
 
   gradeInfo(grade: string) {

@@ -13,6 +13,7 @@ import { TaskDetailDialogComponent } from '../dialogs/task-detail-dialog.compone
 import { SpecApproveDialogComponent } from '../dialogs/spec-approve-dialog.component';
 import { ConfirmDialogComponent } from '../dialogs/confirm-dialog.component';
 import { openImport } from '../import-flow';
+import { handleIntakeReviewResult, subscribeIntakeReview } from '../intake/intake-review';
 
 @Component({
   selector: 'app-cockpit',
@@ -34,6 +35,7 @@ import { openImport } from '../import-flow';
       (resume)="resume($event)"
       (deleteTask)="deleteTask($event)"
       (specApprove)="openSpecApprove($event)"
+      (inboxReview)="openInboxReview($event)"
     ></app-attention-strip>
 
     @if (view === 'inbox') {
@@ -50,6 +52,7 @@ import { openImport } from '../import-flow';
             (importTickets)="openImport()"
             (grade)="runIntake($event, false)"
             (start)="startWorking($event)"
+            (review)="openInboxReview($event)"
           ></app-inbox-table>
         </div>
         @if (showIntake) {
@@ -162,6 +165,16 @@ export class CockpitComponent {
 
   openImport(): void {
     openImport(this.dialog, this.api, this.ui);
+  }
+
+  openInboxReview(id: string): void {
+    subscribeIntakeReview(
+      this.dialog,
+      this.api,
+      id,
+      (result) => handleIntakeReviewResult(result, { ui: this.ui, snack: this.snack, router: this.router }),
+      (message) => this.ui.fail({ message }, message),
+    );
   }
 
   runIntake(id: string, improve: boolean): void {
