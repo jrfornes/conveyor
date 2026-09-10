@@ -61,6 +61,18 @@ class CostCLI(ConveyorTest):
         detail = fx.conveyor("cost", "add-login").stdout
         self.assertRegex(detail, r"(?m)^coder           1  -         -        -         \d+m\s+none$")
 
+    def test_all_silent_points_at_the_runbook(self):
+        """Decision 3: when every run in view reported nothing (the Cursor case),
+        one trailing line says where to read why."""
+        fx = self.run_task("add-login", CODER_SILENT, REVIEWER_SILENT)
+        out = fx.conveyor("cost").stdout
+        self.assertIn("no run reported usage; see runbook §6.2", out)
+
+    def test_one_reported_run_suppresses_the_runbook_line(self):
+        fx = self.run_task("add-login")  # CODER_USAGE / REVIEWER_USAGE both report
+        out = fx.conveyor("cost").stdout
+        self.assertNotIn("no run reported usage; see runbook", out)
+
     def test_unknown_task_dies(self):
         r = self.fx.conveyor("cost", "nope", check=False)
         self.assertEqual(r.returncode, 1)

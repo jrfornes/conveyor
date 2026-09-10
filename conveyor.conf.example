@@ -18,6 +18,11 @@ role reviewer composer-2.5  max_minutes=60 max_attempts=2
 # spend passes N. Task-wide, not per role, so a coder <-> reviewer ping-pong is one
 # budget; absent (or 0) means unbounded. `conveyor cost` shows the totals it counts.
 # Ceilings are on tokens, never dollars: Conveyor ships no price table.
+# The Cursor CLI does not report usage in `stream-json` (its documented terminal
+# event carries no token fields); on Cursor this ceiling never fires and
+# `conveyor cost` shows `-`. Use `max_minutes`. `conveyor start` warns when a role
+# sets `max_tokens` and its smoke run reported no usage. If a later CLI starts
+# reporting it, re-check per runbook §6.2 — no config change is needed.
 #
 #   role coder    composer-2.5  max_retries=3 max_minutes=120 max_attempts=3 max_tokens=500000
 

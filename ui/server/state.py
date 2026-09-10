@@ -183,7 +183,8 @@ def read_logs(root, role, task=None):
     logs = sorted(
         (os.path.getmtime(os.path.join(d, f)), f)
         for f in os.listdir(d)
-        if f.endswith(".jsonl") and f.startswith(prefix)
+        # smoke.jsonl is the start-time smoke run's raw stdout, not a task run log.
+        if f.endswith(".jsonl") and f != "smoke.jsonl" and f.startswith(prefix)
     )
     if not logs:
         return {"filename": None, "events": []}

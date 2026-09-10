@@ -182,7 +182,9 @@ class Fixture:
 
     def logs(self, role):
         d = os.path.join(self.paths.logs, role)
-        return "".join(read(os.path.join(d, f)) for f in sorted(os.listdir(d)) if f.endswith(".jsonl"))
+        # smoke.jsonl is the start-time smoke run's raw stdout, not a task run log.
+        return "".join(read(os.path.join(d, f)) for f in sorted(os.listdir(d))
+                       if f.endswith(".jsonl") and f != "smoke.jsonl")
 
     def read_handoff(self, path):
         return handoff.read(path)

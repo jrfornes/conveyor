@@ -218,6 +218,20 @@ finished has no row at all. The last line appears only when the task's current l
 Conveyor records tokens, not money. A `cost_usd` is kept only when the agent itself reports one:
 prices go stale, and a made-up dollar figure on your screen is worse than no figure.
 
+The Cursor CLI does not report usage in `stream-json` — its documented terminal event carries no
+token fields — so every Cursor run reads as `none`, `conveyor cost` shows `-`, and a `max_tokens`
+ceiling never fires (use `max_minutes`). When every run in view reported nothing, `conveyor cost`
+ends with `no run reported usage; see runbook §6.2`. Field additions may come in a
+backward-compatible way; the alias table absorbs a usage field the moment one appears, with no
+config change. To re-check after a CLI update, look at a smoke run's raw output:
+
+```
+grep -o '"usage"[^}]*}' .conveyor/logs/*/smoke.jsonl | head
+grep -o '"[a-zA-Z_]*[tT]okens*"[^,}]*' .conveyor/logs/*/smoke.jsonl | sort -u
+```
+
+Either something prints — then the numbers start appearing on their own — or nothing does.
+
 **Budgets.** `max_tokens=N` on a `role` line in `conveyor.conf` parks the task with reason
 `max-tokens` once the task's total passes `N`. It is task-wide, not per role — a coder ↔ reviewer
 ping-pong is one budget — and it is checked between attempts as well as before each item, so a task

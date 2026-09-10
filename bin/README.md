@@ -547,6 +547,29 @@ Where the protocol left a choice, the refusing option was taken.
     (`attribution.attributeCommitsToAgent: false`), and `conveyor start`'s smoke
     test is what tells them, with that exact repair text (cursor-cli-runtime.md
     decision 3).
+70. **Cursor reports no token usage in `stream-json`, so `max_tokens` is inert on
+    it — the docs say so and `conveyor start` warns; the scanner is not changed.**
+    (token-cost-on-cursor.md, decision 3.) Cursor's documented terminal event for
+    `--output-format stream-json` is
+    `{"type":"result","subtype":"success","duration_ms":…,"duration_api_ms":…,`
+    `"is_error":false,"result":"…","session_id":"…","request_id":"…"}` — no `usage`,
+    no token fields, and the same for `json`. No live Cursor smoke log was available
+    when this was written (2026-09-10), so the branch rests on Cursor's own CLI
+    reference rather than on numbers a run produced; the two grep lines in runbook
+    §6.2 are exactly how an operator confirms it against a real `smoke.jsonl` and
+    re-checks after a CLI update. `usage.scan` therefore writes `source: none` for
+    every Cursor run, `conveyor cost` prints `-` and, when nothing in view reported
+    usage, ends with `no run reported usage; see runbook §6.2`, and a `max_tokens`
+    ceiling never fires (decision 63 — an unknown total cannot park). `conveyor
+    start` tees each smoke run to `.conveyor/logs/<role>/smoke.jsonl` (overwritten
+    per start) and warns when a role sets `max_tokens` and that log carried no usage;
+    a warning, not a refusal, because the operator may be about to upgrade the CLI.
+    Nothing is estimated from `duration_ms` (token-cost decision 4). The `ALIASES`
+    table keeps its Claude-Code keys — a second backend may use them, and Cursor's
+    docs note that "field additions may occur over time in a backward-compatible
+    way", which the table absorbs the moment a usage field appears, with no config
+    change. `RESULT_SUBTYPES` is left as-is: the extra subtypes are harmless and removing
+    them would only break a future backend for tidiness (decision 5).
 
 ## Not built (PRD Appendix B)
 
