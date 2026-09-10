@@ -64,7 +64,7 @@ The most valuable second agent is an adversary, not a second worker. The agent t
 A specifier and a coder are the same model. Roles are valuable because each session holds one job in a small, clean context instead of a forty-turn session that has forgotten its constraints.
 
 ### SwarmForge implementation
-- Each agent gets a generated instruction file: read `constitution.prompt` and everything it references recursively, read `roles/<role>.prompt`, then a tool-startup block. Delivered via `claude --append-system-prompt-file`, or as the initial prompt / `--rules` for codex, copilot, grok.
+- Each agent gets a generated rules file: the constitution and everything it references, `project.md`, the role file, and its handoff contract, written to `.cursor/rules/conveyor-role.mdc` in the role's worktree and loaded by Cursor on every turn. The per-run prompt carries only the task, the inbound handoff, and any retry context.
 - Role prompts have explicit `## Owns` and `## Does Not Own` sections (the hardener is told to ignore the QA suite entirely).
 - Every delivered handoff body starts with `Re-read your role and constitution.` so each task re-anchors the role.
 - **Batch receive mode**: review-type roles (`cleaner`, `architect`, `hardender`, `QA`) consume all queued equal-priority handoffs as a single unit, so one review pass covers one batch rather than the context accumulating across many tiny tasks.
