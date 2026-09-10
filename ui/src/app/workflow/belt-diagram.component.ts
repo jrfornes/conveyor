@@ -1,12 +1,18 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { Hop, RoleAvatar, RoleRecord } from '../models';
+import { Hop, RoleAvatar } from '../models';
 
 interface BeltNode {
   name: string;
   avatar: RoleAvatar;
   selectable: boolean;
+}
+
+/** The diagram only needs each role's name and avatar. */
+export interface BeltRole {
+  name: string;
+  avatar: RoleAvatar;
 }
 
 @Component({
@@ -95,7 +101,7 @@ interface BeltNode {
   `,
 })
 export class BeltDiagramComponent {
-  @Input() roles: RoleRecord[] = [];
+  @Input() roles: BeltRole[] = [];
   @Input() routes: Hop[] = [];
   /** Role whose outbound `ready` is held for the operator, or null. */
   @Input() gate: string | null = null;

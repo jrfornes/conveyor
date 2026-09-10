@@ -154,13 +154,7 @@ export class WorkflowEditDialogComponent {
   roles = signal<string[]>([]);
 
   previewRoles = computed(() =>
-    this.roles().map((r) => ({
-      name: r,
-      avatar: this.avatar(r),
-      in_workflow: true,
-      text: '',
-      hops: [],
-    })),
+    this.roles().map((r) => ({ name: r, avatar: this.avatar(r) })),
   );
   previewRoutes = computed(() => beltRoutes(this.roles()));
   unused = computed(() => this.data.available.filter((r) => !this.roles().includes(r)));

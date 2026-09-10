@@ -204,13 +204,7 @@ export class WorkflowDetailComponent implements OnInit {
   }
 
   beltRoles() {
-    return (this.wf?.roles_detail ?? []).map((r) => ({
-      name: r.name,
-      avatar: r.avatar,
-      in_workflow: true,
-      text: '',
-      hops: [],
-    }));
+    return (this.wf?.roles_detail ?? []).map((r) => ({ name: r.name, avatar: r.avatar }));
   }
 
   back(): void {
