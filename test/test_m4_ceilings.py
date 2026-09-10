@@ -70,7 +70,7 @@ class M4Attempts(ConveyorTest):
         fx.loop("coder")
         self.assertEqual(fx.parked_reason("demo")[0], "max-attempts")
         logs = sorted(os.listdir(os.path.join(fx.paths.logs, "coder")))
-        self.assertEqual([l for l in logs if l.endswith(".jsonl")],
+        self.assertEqual([l for l in logs if l.endswith(".jsonl") and l != "smoke.jsonl"],
                          ["demo_operator-000001_a1.jsonl", "demo_operator-000001_a2.jsonl"])
         h = fx.read_handoff(os.path.join(fx.paths.needs_human, "demo", "item.handoff"))[0]
         self.assertEqual(h["attempt"], "3")
@@ -144,7 +144,7 @@ class M4Deadline(ConveyorTest):
 
     def jsonl(self):
         return sorted(f for f in os.listdir(os.path.join(self.fx.paths.logs, "coder"))
-                      if f.endswith(".jsonl"))
+                      if f.endswith(".jsonl") and f != "smoke.jsonl")
 
     def test_wedged_run_is_killed_and_parks(self):
         r = self.wedge('commit "Partial"\nsleep 600\n')
@@ -226,7 +226,7 @@ class M4Tokens(ConveyorTest):
         fx.task("demo")
         fx.loop("coder")
         runs = [f for f in sorted(os.listdir(os.path.join(fx.paths.logs, "coder")))
-                if f.endswith(".jsonl")]
+                if f.endswith(".jsonl") and f != "smoke.jsonl"]
         self.assertEqual(runs, ["demo_operator-000001_a1.jsonl"])
         self.assertEqual(fx.parked_reason("demo")[0], "max-tokens")
 
@@ -287,8 +287,9 @@ class M4NoAgent(ConveyorTest):
         self.assertEqual(fx.board()["demo"]["lane"], "needs-human")
         self.assertTrue(os.path.exists(os.path.join(fx.paths.needs_human, "demo", "item.handoff")))
         # No agent log was written: the loop never got as far as launching.
+        # (smoke.jsonl is the start-time smoke run, not a task run log.)
         self.assertEqual([f for f in os.listdir(os.path.join(fx.paths.logs, "coder"))
-                          if f.endswith(".jsonl")], [])
+                          if f.endswith(".jsonl") and f != "smoke.jsonl"], [])
 
 
 class IntakeCeilingsDoNotChangeBelt(ConveyorTest):

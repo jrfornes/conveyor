@@ -664,6 +664,12 @@ def _last_nonempty_line(text):
     return lines[-1] if lines else ""
 
 
+def smoke_log_path(paths, role):
+    """The smoke run's raw stdout, tee'd for the token-cost check (token-cost-on-cursor.md
+    decision 1). Diagnostic, not history: overwritten every `conveyor start`."""
+    return os.path.join(paths.logs, role, "smoke.jsonl")
+
+
 def smoke_test(root, paths, cfg, role, wt, agent):
     """Prove <role> can write outside its worktree and commit with the byline
     before any task is dequeued (cursor-cli-runtime.md decision 4). Returns an
@@ -685,6 +691,11 @@ def smoke_test(root, paths, cfg, role, wt, agent):
     cmd.append(SMOKE_PROMPT.format(root=root, role=role))
     env = {**os.environ, "CONVEYOR_ROLE": role, "CONVEYOR_WORKTREE": wt, "CONVEYOR_ROOT": root}
     res = subprocess.run(cmd, cwd=wt, capture_output=True, text=True, env=env)
+    # Tee the agent's stdout so `conveyor start` can look at what it actually
+    # reported (token-cost-on-cursor.md decision 1). Overwrite, never append.
+    log_path = smoke_log_path(paths, role)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    util.atomic_write(log_path, res.stdout or "")
     head = util.git(["rev-parse", "HEAD"], wt)
     count = int(util.git(["rev-list", "--count", f"{tip}..{head}"], wt))
     if count > 1:
@@ -767,6 +778,13 @@ def cmd_start(args):
             if err:
                 util.die(f"conveyor start: {err}")
             print(f"{role.name}: smoke ok")
+            # A max_tokens ceiling is inert against an agent that reports no usage
+            # (token-cost-on-cursor.md decision 3). Warn, do not refuse: the
+            # operator may be about to upgrade a CLI that starts reporting it.
+            if role.max_tokens and usage.scan(
+                    util.read_text(smoke_log_path(paths, role.name)))["source"] == "none":
+                print(f"warning: {role.name} sets max_tokens but the agent reported no "
+                      f"usage in its smoke run; the ceiling will not fire")
     for role in cfg.roles:
         if loop_pid(paths, role.name):
             print(f"{role.name}: loop already running (pid {loop_pid(paths, role.name)})")
@@ -907,7 +925,8 @@ def cmd_log(args):
     d = os.path.join(paths.logs, args[0])
     prefix = f"{args[1]}_" if len(args) > 1 else ""
     logs = sorted((os.path.getmtime(os.path.join(d, f)), f) for f in os.listdir(d)
-                  if f.endswith(".jsonl") and f.startswith(prefix)) if os.path.isdir(d) else []
+                  if f.endswith(".jsonl") and f != "smoke.jsonl" and f.startswith(prefix)) \
+        if os.path.isdir(d) else []
     if not logs:
         util.die("no log found")
     rows = []
@@ -973,6 +992,10 @@ def cmd_cost(args):
     print(f"{len(names)} task{'s' if len(names) != 1 else ''}, "
           f"{t['runs']} run{'s' if t['runs'] != 1 else ''}."
           + _unknown_note(t["unknown"]))
+    # When nothing in view reported usage, point at why (token-cost-on-cursor.md
+    # decision 3). The `-` cells stay; this only appears when every run is unknown.
+    if grand and t["known"] == 0:
+        print("no run reported usage; see runbook §6.2")
 
 
 def _cost_task(cfg, rows, by_task, task):

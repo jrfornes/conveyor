@@ -372,7 +372,7 @@ class MidPipeline(SetupFixture):
         self.assertTrue(os.path.isfile(os.path.join(
             self.fx.paths.needs_human, "add-login", "item.handoff")))
         self.assertEqual([f for f in os.listdir(os.path.join(self.fx.paths.logs, "reviewer"))
-                          if f.endswith(".jsonl")], [])
+                          if f.endswith(".jsonl") and f != "smoke.jsonl"], [])
         self.assertEqual(self.setup_log("reviewer").splitlines()[0], "exit: 1")
 
     def test_resume_after_setup_failed_behaves_like_every_other_reason(self):

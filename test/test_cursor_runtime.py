@@ -161,6 +161,46 @@ class Smoke(ConveyorTest):
         fx.conveyor("stop", check=False)
         self.assertIn(f"agent: {FAKE} (fake-agent 0.0)", r.stdout)
 
+    def smoke_jsonl(self, role="coder"):
+        return os.path.join(self.fx.paths.logs, role, "smoke.jsonl")
+
+    def test_smoke_tees_stdout_and_replaces_it_on_the_next_start(self):
+        """token-cost-on-cursor.md decision 1 / test 4: smoke.jsonl exists after a
+        start and is overwritten, never appended, on the next one."""
+        fx = self.fx
+        fx.conveyor("start", check=False)
+        fx.conveyor("stop", check=False)
+        self.assertTrue(os.path.isfile(self.smoke_jsonl()))
+        first = [l for l in read(self.smoke_jsonl()).splitlines() if l.strip()]
+        self.assertTrue(first)  # the default smoke emits system/fake/result events
+        fx.conveyor("start", check=False)
+        fx.conveyor("stop", check=False)
+        second = [l for l in read(self.smoke_jsonl()).splitlines() if l.strip()]
+        self.assertEqual(len(second), len(first))  # replaced, not doubled
+
+
+class SmokeUsageWarning(ConveyorTest):
+    """token-cost-on-cursor.md decision 3 / test 1: a max_tokens ceiling against an
+    agent that reports no usage in its smoke run warns, but does not refuse."""
+
+    coder_conf = "max_minutes=120 max_attempts=3 max_tokens=1000"
+
+    WARNING = ("warning: coder sets max_tokens but the agent reported no usage in "
+               "its smoke run; the ceiling will not fire")
+
+    def test_warns_when_max_tokens_set_and_smoke_reports_no_usage(self):
+        r = self.fx.conveyor("start", check=False)
+        self.fx.conveyor("stop", check=False)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("coder: smoke ok", r.stdout)
+        self.assertIn(self.WARNING, r.stdout)
+
+    def test_no_warning_when_the_role_sets_no_ceiling(self):
+        # reviewer carries no max_tokens, so only coder's line may appear.
+        r = self.fx.conveyor("start", check=False)
+        self.fx.conveyor("stop", check=False)
+        self.assertNotIn("reviewer sets max_tokens", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

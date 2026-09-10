@@ -15,7 +15,7 @@ TS = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 class LogTimestamps(ConveyorTest):
     def run_log(self, role="coder"):
         d = os.path.join(self.fx.paths.logs, role)
-        f = sorted(n for n in os.listdir(d) if n.endswith(".jsonl"))[-1]
+        f = sorted(n for n in os.listdir(d) if n.endswith(".jsonl") and n != "smoke.jsonl")[-1]
         return [json.loads(line) for line in read(os.path.join(d, f)).splitlines()]
 
     def test_every_run_log_line_is_dated_jsonl(self):
@@ -61,7 +61,7 @@ class LogTimestamps(ConveyorTest):
         """Logs written before dating still render, with an empty clock column."""
         self.run_pipeline("demo")
         d = os.path.join(self.fx.paths.logs, "coder")
-        f = sorted(n for n in os.listdir(d) if n.endswith(".jsonl"))[-1]
+        f = sorted(n for n in os.listdir(d) if n.endswith(".jsonl") and n != "smoke.jsonl")[-1]
         with open(os.path.join(d, f), "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"type": "assistant", "text": "undated"}) + "\n")
         line = [l for l in self.fx.conveyor("log", "coder").stdout.splitlines() if "undated" in l][0]

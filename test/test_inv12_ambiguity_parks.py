@@ -30,7 +30,8 @@ class AmbiguityParks(ConveyorTest):
         r = fx.loop("coder")
         self.assertIn("E_NO_RULES", r.stdout)
         self.assertEqual(fx.parked_reason("demo")[0], "no-rules")
-        self.assertEqual([f for f in os.listdir(os.path.join(fx.paths.logs, "coder")) if f.endswith(".jsonl")], [])
+        self.assertEqual([f for f in os.listdir(os.path.join(fx.paths.logs, "coder"))
+                          if f.endswith(".jsonl") and f != "smoke.jsonl"], [])
 
     def test_merge_conflict_on_pass_parks_and_resume_recovers(self):
         fx = self.start_task(coder='write work.txt "coder version"\ncommit "Implement $TASK"\n'
